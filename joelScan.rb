@@ -4,12 +4,8 @@
 #Create a user that the bot can use for the DB
 #In order for this file to work you need to install ruby and the gems in the gemfile
 
-
-#client id
-@client_id = "client id"
-
-#client secret
-@clientSecret = "client secret"
+#@client_id = "your client id"
+#@clientSecret = "your client secret"
 
 #nickname of the bot
 @nickname = "joelscrapper"
@@ -35,6 +31,7 @@ end
 
 require "faraday"
 require "mysql2"
+require_relative "credentials.rb"
 
 
 
