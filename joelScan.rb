@@ -8,14 +8,15 @@
 #@clientSecret = "your client secret"
 
 #nickname of the bot
-@nickname = "joelscrapper"
+#@nickname = "something"
 
 #channel to connect to
 #all lowercase
 # "#" before channel name is required
-#@channel = "#venorrak"
 #@channel = "#jakecreatesstuff,#hawkthegamer15"
-@channel = "#yourchannel"
+#@channel = "#yourchannel"
+
+@APItoken = nil
 
 require "bundler/inline"
 require "json"
@@ -45,6 +46,13 @@ require_relative "credentials.rb"
 $server = Faraday.new(url: "https://id.twitch.tv") do |conn|
     conn.request :url_encoded
 end
+
+#connect to the twitch api
+$APItwitch = Faraday.new(url: "https://api.twitch.tv") do |conn|
+    conn.request :url_encoded
+end
+
+
 
 #open socket to the irc server
 @socket = TCPSocket.new('irc.chat.twitch.tv', 6667)
@@ -153,6 +161,7 @@ def getAccess()
     #check if there is a token that can be used in the database
     @client.query("SELECT * FROM connectionTokens WHERE TIMESTAMPDIFF(MINUTE, ADDTIME(creationTime, availableTime), '#{DateTime.now.strftime("%Y-%m-%d %H:%M:%S")}') <= 0;").each do |row|
         oauthToken = row["token"]
+        @APItoken = row["token"]
         tokenid = row["id"]
         @client.query("SELECT TIMESTAMPDIFF(MINUTE, ADDTIME(creationTime, availableTime), '#{DateTime.now.strftime("%Y-%m-%d %H:%M:%S")}') as 'remainingTime' FROM connectionTokens WHERE id = #{tokenid};").each do |row2|
             p "token expires in #{row2["remainingTime"]} minutes"
@@ -162,7 +171,7 @@ def getAccess()
     if oauthToken == nil
         response = $server.post("/oauth2/device") do |req|
             req.headers["Content-Type"] = "application/x-www-form-urlencoded"
-            req.body = "client_id=#{@client_id}&scopes=chat:read+chat:edit+user:bot+user:write:chat+channel:bot"
+            req.body = "client_id=#{@client_id}&scopes=chat:read+chat:edit+user:bot+user:write:chat+channel:bot+user:manage:whispers"
         end
         rep = JSON.parse(response.body)
         device_code = rep["device_code"]
@@ -173,10 +182,11 @@ def getAccess()
         wait = gets.chomp
 
         response = $server.post("/oauth2/token") do |req|
-            req.body = "client_id=#{@client_id}&scope=channel:manage:broadcast&device_code=#{device_code}&grant_type=urn:ietf:params:oauth:grant-type:device_code"
+            req.body = "client_id=#{@client_id}&scopes=channel:manage:broadcast,user:manage:whispers&device_code=#{device_code}&grant_type=urn:ietf:params:oauth:grant-type:device_code"
         end
         rep = JSON.parse(response.body)
         oauthToken = rep["access_token"]
+        @APItoken = rep["access_token"]
 
         timeUntilExpire = rep["expires_in"]
         #convert seconds to time
@@ -218,6 +228,15 @@ def loginIRC(oauthToken)
 end
 
 getAccess()
+
+#get the user id for the API
+response = $APItwitch.get("/helix/users?login=#{@nickname}") do |req|
+    req.headers["Authorization"] = "Bearer #{@APItoken}"
+    req.headers["Client-Id"] = @client_id
+end
+rep = JSON.parse(response.body)
+@me_id = rep["data"][0]["id"]
+
 
 while @running do
     #is the socket readable
@@ -282,22 +301,49 @@ while @running do
                 if messageWords[0] == "!JoelCount"
                     #get the username as the second word
                     user = messageWords[1] rescue nil
-                    targetChannel = message[:command][:channel]
+
+                    #get the user id of the person who sent the message
+                    response = $APItwitch.get("/helix/users?login=#{message[:source][:user]}") do |req|
+                        req.headers["Authorization"] = "Bearer #{@APItoken}"
+                        req.headers["Client-Id"] = @client_id
+                    end
+                    rep = JSON.parse(response.body)
+                    caller_id = rep["data"][0]["id"]
+
+                    #if the user is nil
                     if user == nil
                         #show commands
-                        @socket.puts("PRIVMSG #{targetChannel} : for now the only command is !JoelCount <username> to get the count of a user")
+                        response = $APItwitch.post("/helix/whispers?from_user_id=#{@me_id}&to_user_id=#{caller_id}") do |req|
+                            req.headers["Authorization"] = "Bearer #{@APItoken}"
+                            req.headers["Client-Id"] = @client_id
+                            req.headers["Content-Type"] = "application/json"
+                            req.body = {"message": "for now the only command is !JoelCount username to get the count of a user"}.to_json
+                        end
+                        p response.body
                     else
                         userExits = false
                         #search the database for the user
                         @client.query("SELECT count FROM joels WHERE user_id = (SELECT id FROM users WHERE name = '#{user}');").each do |row|
                             count = row["count"].to_i
                             userExits = true
-                            #send the count to the channel
-                            @socket.puts("PRIVMSG #{targetChannel} :#{user} has said Joel #{count} times")
+                            #send the count to the user (whisper)
+                            response = $APItwitch.post("/helix/whispers?from_user_id=#{@me_id}&to_user_id=#{caller_id}") do |req|
+                                req.headers["Authorization"] = "Bearer #{@APItoken}"
+                                req.headers["Client-Id"] = @client_id
+                                req.headers["Content-Type"] = "application/json"
+                                req.body = {"message": "#{user} has said Joel #{count} times"}.to_json
+                            end
+                            p response.body
                         end
                         if userExits == false
                             #if the user is not in the database
-                            @socket.puts("PRIVMSG #{targetChannel} :#{user} has not said Joel yet")
+                            response = $APItwitch.post("/helix/whispers?from_user_id=#{@me_id}&to_user_id=#{caller_id}") do |req|
+                                req.headers["Authorization"] = "Bearer #{@APItoken}"
+                                req.headers["Client-Id"] = @client_id
+                                req.headers["Content-Type"] = "application/json"
+                                req.body = {"message": "#{user} has not said Joel yet"}.to_json
+                            end
+                            p response.body
                         end
                     end
                 end
