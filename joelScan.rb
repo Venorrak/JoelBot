@@ -12,11 +12,11 @@
 
 #channel to connect to
 #all lowercase
-# "#" before channel name is required
-#@channel = "#jakecreatesstuff,#hawkthegamer15"
-#@channel = "#yourchannel"
+#@channels = ["channel1", "channel2", "channel3"]
 
 @APItoken = nil
+@joinedChannels = []
+
 
 require "bundler/inline"
 require "json"
@@ -159,7 +159,7 @@ end
 def getAccess()
     oauthToken = nil
     #check if there is a token that can be used in the database
-    @client.query("SELECT * FROM connectionTokens WHERE TIMESTAMPDIFF(MINUTE, ADDTIME(creationTime, availableTime), '#{DateTime.now.strftime("%Y-%m-%d %H:%M:%S")}') <= 0;").each do |row|
+    @client.query("SELECT * FROM connectionTokens WHERE TIMESTAMPDIFF(MINUTE, ADDTIME(creationTime, availableTime), '#{DateTime.now.strftime("%Y-%m-%d %H:%M:%S")}') < 0;").each do |row|
         oauthToken = row["token"]
         @APItoken = row["token"]
         tokenid = row["id"]
@@ -202,17 +202,25 @@ def getAccess()
     loginIRC(oauthToken)
 end
 
-def refreshAccess()
-    response = $server.post("/oauth2/token") do |req|
-        req.body = "client_id=#{@client_id}&client_secret=#{@clientSecret}&grant_type=refresh_token&refresh_token=#{refreshToken}"
+def getLiveChannels()
+    liveChannels = []
+    channelsString = ""
+    @channels.each do |channel|
+        channelsString += "user_login=#{channel}&"
+    end
+    channelsString = channelsString.delete_suffix("&")
+    response = $APItwitch.get("/helix/streams?#{channelsString}") do |req|
+        req.headers["Authorization"] = "Bearer #{@APItoken}"
+        req.headers["Client-Id"] = @client_id
     end
     rep = JSON.parse(response.body)
-    oauthToken = rep["access_token"]
-    refreshToken = rep["refresh_token"]
-    timeUntilExpire = rep["expires_in"]
-    #convert seconds to hours
-    p "token expires in #{timeUntilExpire / 3600} hours"
-    loginIRC(oauthToken)
+    rep["data"].each do |channel|
+        if channel["type"] == "live"
+            liveChannels << "#{channel["user_login"]}"
+        end
+    end
+    p liveChannels
+    return liveChannels
 end
 
 def loginIRC(oauthToken)
@@ -223,8 +231,11 @@ def loginIRC(oauthToken)
     p "PASS oauth:#{oauthToken}"
     @socket.puts("NICK #{@nickname}")
     p "NICK #{@nickname}"
-    @socket.puts("JOIN #{@channel}")
-    p "JOIN #{@channel}"
+    liveChannels = getLiveChannels()
+    liveChannels.each do |channel|
+        @socket.puts("JOIN ##{channel}")
+        @joinedChannels << channel
+    end
 end
 
 getAccess()
@@ -237,10 +248,29 @@ end
 rep = JSON.parse(response.body)
 @me_id = rep["data"][0]["id"]
 
+Thread.start do
+    loop do
+        # each 2 minutes check if the channels are live and if the bot is in the channels
+        sleep 120
+        p "checking channels"
+        liveChannels = getLiveChannels()
+        @channels.each do |channel|
+            if liveChannels.include?(channel) && !@joinedChannels.include?(channel)
+                @socket.puts("JOIN ##{channel}")
+                p "JOIN ##{channel}"
+                @joinedChannels << channel
+            end
+            if !liveChannels.include?(channel) && @joinedChannels.include?(channel)
+                @socket.puts("PART ##{channel}")
+                p "PART ##{channel}"
+                @joinedChannels.delete(channel)
+            end
+        end
+    end
+end
 
 while @running do
     #is the socket readable
-    #readable = IO.select([socket], nil, nil, 5)
     readable = IO.select([@socket])
     if readable
         #read the message
@@ -363,7 +393,7 @@ while @running do
                 p "Reconnecting in 15 minutes"
                 sleep 900
                 p "Reconnecting"
-                refreshAccess()
+                getAccess()
             end
             if message[:command][:command] == "USERSTATE" || message[:command][:command] == "ROOMSTATE"
                 pp message
@@ -374,7 +404,7 @@ while @running do
             end
         else
             p "message is nil"
-            refreshAccess()
+            getAccess()
         end
     end
 end
