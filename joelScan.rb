@@ -305,6 +305,13 @@ while @running do
                             #increment the count of the user
                             @client.query("UPDATE joels SET count = count + 1 WHERE user_id = #{user_id};")
                         end
+                        #sql request to search if channel is in the database
+                        @client.query("SELECT * FROM channels WHERE name = '#{message[:command][:channel].delete_prefix("#")}';").each do |row|
+                            channelExits = true
+                            channel_id = row["id"]
+                            #increment the count of the channel
+                            @client.query("UPDATE channelJoels SET count = count + 1 WHERE channel_id = #{channel_id};")
+                        end
                         #if user is not in the database
                         if userExits == false
                             user_id = 0
@@ -316,6 +323,18 @@ while @running do
                             end
                             #add the user to the joels table and set the count to 1
                             @client.query("INSERT INTO joels VALUES (DEFAULT, #{user_id}, 1);")
+                        end
+                        #if channel is not in the database
+                        if channelExits == false
+                            channel_id = 0
+                            #add the channel to the database
+                            @client.query("INSERT INTO channels VALUES (DEFAULT, '#{message[:command][:channel].delete_prefix("#")}', '#{DateTime.now.strftime("%Y-%m-%d")}');")
+                            #get the id of the new channel
+                            @client.query("SELECT id FROM channels WHERE name = '#{message[:command][:channel].delete_prefix("#")}';").each do |row|
+                                channel_id = row["id"]
+                            end
+                            #add the channel to the channelJoels table and set the count to 1
+                            @client.query("INSERT INTO channelJoels VALUES (DEFAULT, #{channel_id}, 1);")
                         end
                     end
                     #if the word is not empty or nil
