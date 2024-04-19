@@ -8,11 +8,24 @@ CREATE TABLE IF NOT EXISTS users (
     creationDAte DATE NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS channels (
+    id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    creationDate DATE NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS joels (
     id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
     user_id INT NOT NULL,
     count DOUBLE NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS channelJoels (
+    id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
+    channel_id INT NOT NULL,
+    count DOUBLE NOT NULL,
+    FOREIGN KEY (channel_id) REFERENCES channels(id)
 );
 
 CREATE TABLE IF NOT EXISTS connectionTokens (
