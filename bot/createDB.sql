@@ -5,7 +5,7 @@ USE joelScan;
 CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
-    creationDAte DATE NOT NULL
+    creationDate DATE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS channels (

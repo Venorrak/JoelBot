@@ -214,23 +214,21 @@ def getLiveChannels()
     liveChannels = []
     channelsString = ""
     @channels.each do |channel|
-        channelsString += "user_login=#{channel}&"
-    end
-    channelsString = channelsString.delete_suffix("&")
-    response = $APItwitch.get("/helix/streams?#{channelsString}") do |req|
-        req.headers["Authorization"] = "Bearer #{@APItoken}"
-        req.headers["Client-Id"] = @client_id
-    end
-    begin
-        rep = JSON.parse(response.body)
-        rep["data"].each do |channel|
-            if channel["type"] == "live"
-                liveChannels << "#{channel["user_login"]}"
-            end
+        response = $APItwitch.get("/helix/streams?user_login=#{channel}") do |req|
+            req.headers["Authorization"] = "Bearer #{@APItoken}"
+            req.headers["Client-Id"] = @client_id
         end
-    rescue
-        #if the response is not json or doesn't contain the data key
-        refreshAccess()
+        begin
+            rep = JSON.parse(response.body)
+            rep["data"].each do |stream|
+                if stream["type"] == "live"
+                    liveChannels << "#{stream["user_login"]}"
+                end
+            end
+        rescue
+            #if the response is not json or doesn't contain the data key
+            refreshAccess()
+        end
     end
     p liveChannels
     return liveChannels

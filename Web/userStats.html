@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Venorrak - User Stats</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+
+        header {
+            background-color: #333;
+            color: #fff;
+            padding: 20px 0;
+            text-align: center;
+        }
+
+        nav {
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        nav a {
+            text-decoration: none;
+            color: #333;
+            padding: 10px 20px;
+            margin: 0 5px;
+            border-radius: 5px;
+            background-color: #fff;
+        }
+
+        nav a:hover,
+        button:hover {
+            background-color: #666;
+            color: #fff;
+        }
+
+        nav div {
+            display: inline-block;
+        }
+
+        .dropdown .dropbtn {
+            text-decoration: none;
+            padding: 10px 20px;
+            margin: 0 5px;
+            border-radius: 5px;
+            display: inline-block;
+        }
+
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            /* Set position to absolute */
+            background-color: #f1f1f1;
+            min-width: 120px;
+            z-index: 1;
+        }
+
+        .dropdown-content a {
+            color: #333;
+            padding: 10px 20px;
+            text-decoration: none;
+            display: block;
+            margin: 0px;
+            border-radius: 5px;
+            background-color: #fff;
+        }
+
+        .dropdown-content a:hover {
+            background-color: #666;
+        }
+
+        .dropdown:hover .dropdown-content {
+            display: block;
+        }
+
+        .container {
+            max-width: 70%;
+            margin: 20px auto;
+            padding: 0 20px;
+        }
+
+        .userList {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        .userList th,
+        .userList td {
+            padding: 12px 15px;
+            text-align: center;
+            border: 2px solid #ddd;
+            border-collapse: collapse;
+            width: calc(100% / 3);
+            /* Equal width for all columns */
+        }
+
+        .userList th {
+            background-color: #666;
+            color: white;
+        }
+
+        .userList tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+
+        .userList tr:hover {
+            background-color: #ddd;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>User Stats</h1>
+        <nav>
+            <a href="/">Home</a>
+            <a href="/portfolio">Portfolio</a>
+            <div class="dropdown">
+                <a class="dropbtn">Joel stats</a>
+                <div class="dropdown-content">
+                    <a href="#">Users</a>
+                    <a href="/joels/channels">channels</a>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <div class="container" style="width: 70%;">
+        <table class="userList" id="table-user">
+        </table>
+        <script>
+            async function getUserData() {
+                const users = await fetch('/joels/users/data', { method: 'GET' }).then(response => response.json());
+                const table = document.getElementById('table-user');
+                table.innerHTML = '<tr><th>User</th><th>Since</th><th>Count</th></tr>';
+                for( const u of users){
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td><a href="https://www.twitch.tv/${u.name}" target="blank">${u.name}</a></td><td>${u.date}</td><td>${u.count}</td>`;
+                    table.appendChild(tr);
+                }
+            }
+            getUserData();
+        </script>
+    </div>
+</body>
+
+</html>
