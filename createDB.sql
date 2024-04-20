@@ -27,10 +27,3 @@ CREATE TABLE IF NOT EXISTS channelJoels (
     count DOUBLE NOT NULL,
     FOREIGN KEY (channel_id) REFERENCES channels(id)
 );
-
-CREATE TABLE IF NOT EXISTS connectionTokens (
-    id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
-    token VARCHAR(100) NOT NULL,
-    availableTime VARCHAR(10) NOT NULL,
-    creationTime DATETIME NOT NULL
-);

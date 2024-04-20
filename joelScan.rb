@@ -16,6 +16,8 @@
 
 @APItoken = nil
 @joinedChannels = []
+@refreshToken = nil
+@joels = ["GoldenJoel" , "Joel2" , "Joeler" , "Joel" , "jol" , "JoelCheck" , "JoelbutmywindowsXPiscrashing" , "JOELLINES"]
 
 
 require "bundler/inline"
@@ -159,47 +161,53 @@ end
 def getAccess()
     oauthToken = nil
     #check if there is a token that can be used in the database
-    @client.query("SELECT * FROM connectionTokens WHERE TIMESTAMPDIFF(MINUTE, ADDTIME(creationTime, availableTime), '#{DateTime.now.strftime("%Y-%m-%d %H:%M:%S")}') < 0;").each do |row|
-        oauthToken = row["token"]
-        @APItoken = row["token"]
-        tokenid = row["id"]
-        @client.query("SELECT TIMESTAMPDIFF(MINUTE, ADDTIME(creationTime, availableTime), '#{DateTime.now.strftime("%Y-%m-%d %H:%M:%S")}') as 'remainingTime' FROM connectionTokens WHERE id = #{tokenid};").each do |row2|
-            p "token expires in #{row2["remainingTime"]} minutes"
-        end
+    
+    response = $server.post("/oauth2/device") do |req|
+        req.headers["Content-Type"] = "application/x-www-form-urlencoded"
+        req.body = "client_id=#{@client_id}&scopes=chat:read+chat:edit+user:bot+user:write:chat+channel:bot+user:manage:whispers"
     end
-    #if there is no token that can be used in the database create a new one
-    if oauthToken == nil
-        response = $server.post("/oauth2/device") do |req|
-            req.headers["Content-Type"] = "application/x-www-form-urlencoded"
-            req.body = "client_id=#{@client_id}&scopes=chat:read+chat:edit+user:bot+user:write:chat+channel:bot+user:manage:whispers"
-        end
-        rep = JSON.parse(response.body)
-        device_code = rep["device_code"]
+    rep = JSON.parse(response.body)
+    device_code = rep["device_code"]
 
-        # wait for user to authorize the app
-        puts "Please go to #{rep["verification_uri"]} and enter the code #{rep["user_code"]}"
-        puts "Press enter when you have authorized the app"
-        wait = gets.chomp
+    # wait for user to authorize the app
+    puts "Please go to #{rep["verification_uri"]} and enter the code #{rep["user_code"]}"
+    puts "Press enter when you have authorized the app"
+    wait = gets.chomp
 
-        response = $server.post("/oauth2/token") do |req|
-            req.body = "client_id=#{@client_id}&scopes=channel:manage:broadcast,user:manage:whispers&device_code=#{device_code}&grant_type=urn:ietf:params:oauth:grant-type:device_code"
-        end
-        rep = JSON.parse(response.body)
-        oauthToken = rep["access_token"]
-        @APItoken = rep["access_token"]
-
-        timeUntilExpire = rep["expires_in"]
-        #convert seconds to time
-        seconds = timeUntilExpire % 60
-        minutes = (timeUntilExpire / 60) % 60
-        hours = timeUntilExpire / 3600
-        timeString = "#{hours}:#{minutes}:#{seconds}"
-        p "token expires in #{timeString}"
-        p DateTime.now.strftime("%Y-%m-%d %H:%M:%S")
-        p oauthToken
-        @client.query("INSERT INTO connectionTokens VALUES (DEFAULT, '#{oauthToken}', '#{timeString}', '#{DateTime.now.strftime("%Y-%m-%d %H:%M:%S")}');");
+    response = $server.post("/oauth2/token") do |req|
+        req.body = "client_id=#{@client_id}&scopes=channel:manage:broadcast,user:manage:whispers&device_code=#{device_code}&grant_type=urn:ietf:params:oauth:grant-type:device_code"
     end
+    rep = JSON.parse(response.body)
+    oauthToken = rep["access_token"]
+    @APItoken = rep["access_token"]
+    @refreshToken = rep["refresh_token"]
+
+    timeUntilExpire = rep["expires_in"]
+    #convert seconds to time
+    seconds = timeUntilExpire % 60
+    minutes = (timeUntilExpire / 60) % 60
+    hours = timeUntilExpire / 3600
+    timeString = "#{hours}:#{minutes}:#{seconds}"
+    p "token expires in #{timeString}"
     loginIRC(oauthToken)
+end
+
+def refreshAccess()
+    response = $server.post("/oauth2/token") do |req|
+        req.headers["Content-Type"] = "application/x-www-form-urlencoded"
+        req.body = "grant_type=refresh_token&refresh_token=#{@refreshToken}&client_id=#{@client_id}&client_secret=#{@clientSecret}"
+    end
+    rep = JSON.parse(response.body)
+    @APItoken = rep["access_token"]
+    @refreshToken = rep["refresh_token"]
+    timeUntilExpire = rep["expires_in"]
+    #convert seconds to time
+    seconds = timeUntilExpire % 60
+    minutes = (timeUntilExpire / 60) % 60
+    hours = timeUntilExpire / 3600
+    timeString = "#{hours}:#{minutes}:#{seconds}"
+    p "token expires in #{timeString}"
+    loginIRC(@APItoken);
 end
 
 def getLiveChannels()
@@ -213,11 +221,16 @@ def getLiveChannels()
         req.headers["Authorization"] = "Bearer #{@APItoken}"
         req.headers["Client-Id"] = @client_id
     end
-    rep = JSON.parse(response.body)
-    rep["data"].each do |channel|
-        if channel["type"] == "live"
-            liveChannels << "#{channel["user_login"]}"
+    begin
+        rep = JSON.parse(response.body)
+        rep["data"].each do |channel|
+            if channel["type"] == "live"
+                liveChannels << "#{channel["user_login"]}"
+            end
         end
+    rescue
+        #if the response is not json or doesn't contain the data key
+        refreshAccess()
     end
     p liveChannels
     return liveChannels
@@ -293,11 +306,12 @@ while @running do
                 #split the message into words
                 message[:params][:message].split(' ').each do |word|
                     #if a word is Joel
-                    if word == "Joel"
+                    if @joels.include?(word)
                         #get the user name of the person who said Joel
                         name = message[:source][:user]
                         p "Joel found in message from #{name}"
                         userExits = false
+                        channelExists = false
                         #sql request to search if user is in the database
                         @client.query("SELECT * FROM users WHERE name = '#{name}';").each do |row|
                             userExits = true
@@ -307,7 +321,7 @@ while @running do
                         end
                         #sql request to search if channel is in the database
                         @client.query("SELECT * FROM channels WHERE name = '#{message[:command][:channel].delete_prefix("#")}';").each do |row|
-                            channelExits = true
+                            channelExists = true
                             channel_id = row["id"]
                             #increment the count of the channel
                             @client.query("UPDATE channelJoels SET count = count + 1 WHERE channel_id = #{channel_id};")
@@ -325,7 +339,7 @@ while @running do
                             @client.query("INSERT INTO joels VALUES (DEFAULT, #{user_id}, 1);")
                         end
                         #if channel is not in the database
-                        if channelExits == false
+                        if channelExists == false
                             channel_id = 0
                             #add the channel to the database
                             @client.query("INSERT INTO channels VALUES (DEFAULT, '#{message[:command][:channel].delete_prefix("#")}', '#{DateTime.now.strftime("%Y-%m-%d")}');")
@@ -412,7 +426,7 @@ while @running do
                 p "Reconnecting in 15 minutes"
                 sleep 900
                 p "Reconnecting"
-                getAccess()
+                refreshAccess()
             end
             if message[:command][:command] == "USERSTATE" || message[:command][:command] == "ROOMSTATE"
                 pp message
@@ -423,7 +437,7 @@ while @running do
             end
         else
             p "message is nil"
-            getAccess()
+            refreshAccess()
         end
     end
 end
