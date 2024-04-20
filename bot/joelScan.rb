@@ -158,10 +158,9 @@ def parseMessage(message)
     return parsedMessage
 end
 
+#function to get the access token for API and IRC
 def getAccess()
     oauthToken = nil
-    #check if there is a token that can be used in the database
-    
     response = $server.post("/oauth2/device") do |req|
         req.headers["Content-Type"] = "application/x-www-form-urlencoded"
         req.body = "client_id=#{@client_id}&scopes=chat:read+chat:edit+user:bot+user:write:chat+channel:bot+user:manage:whispers"
@@ -192,6 +191,7 @@ def getAccess()
     loginIRC(oauthToken)
 end
 
+#function to refresh the access token for API and IRC
 def refreshAccess()
     response = $server.post("/oauth2/token") do |req|
         req.headers["Content-Type"] = "application/x-www-form-urlencoded"
@@ -200,6 +200,7 @@ def refreshAccess()
     rep = JSON.parse(response.body)
     @APItoken = rep["access_token"]
     @refreshToken = rep["refresh_token"]
+
     timeUntilExpire = rep["expires_in"]
     #convert seconds to time
     seconds = timeUntilExpire % 60
@@ -207,43 +208,50 @@ def refreshAccess()
     hours = timeUntilExpire / 3600
     timeString = "#{hours}:#{minutes}:#{seconds}"
     p "token expires in #{timeString}"
-    loginIRC(@APItoken);
+
+    loginIRC(@APItoken)
 end
 
+#function to get the live channels from the channels array
 def getLiveChannels()
     liveChannels = []
     channelsString = ""
     @channels.each do |channel|
-        channelsString += "user_login=#{channel}&"
-    end
-    channelsString = channelsString.delete_suffix("&")
-    response = $APItwitch.get("/helix/streams?#{channelsString}") do |req|
-        req.headers["Authorization"] = "Bearer #{@APItoken}"
-        req.headers["Client-Id"] = @client_id
-    end
-    begin
-        rep = JSON.parse(response.body)
-        rep["data"].each do |channel|
-            if channel["type"] == "live"
-                liveChannels << "#{channel["user_login"]}"
-            end
+        response = $APItwitch.get("/helix/streams?user_login=#{channel}") do |req|
+            req.headers["Authorization"] = "Bearer #{@APItoken}"
+            req.headers["Client-Id"] = @client_id
         end
-    rescue
-        #if the response is not json or doesn't contain the data key
-        refreshAccess()
+        begin
+            rep = JSON.parse(response.body)
+            rep["data"].each do |stream|
+                if stream["type"] == "live"
+                    liveChannels << "#{stream["user_login"]}"
+                end
+            end
+        rescue
+            #if the response is not json or doesn't contain the data key
+            liveChannels = []
+            refreshAccess()
+        end
     end
     p liveChannels
     return liveChannels
 end
 
+#function to login to the IRC server
 def loginIRC(oauthToken)
+    #close the socket and open a new one
+    @socket.close
+    @socket = TCPSocket.new('irc.chat.twitch.tv', 6667)
     @running = true
+    #send the login information to the server
     @socket.puts("CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands")
     p "CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands"
     @socket.puts("PASS oauth:#{oauthToken}")
     p "PASS oauth:#{oauthToken}"
     @socket.puts("NICK #{@nickname}")
     p "NICK #{@nickname}"
+    #join the channels that are live
     liveChannels = getLiveChannels()
     liveChannels.each do |channel|
         @socket.puts("JOIN ##{channel}")
@@ -253,7 +261,7 @@ end
 
 getAccess()
 
-#get the user id for the API
+#get the user id from the API
 response = $APItwitch.get("/helix/users?login=#{@nickname}") do |req|
     req.headers["Authorization"] = "Bearer #{@APItoken}"
     req.headers["Client-Id"] = @client_id
@@ -261,6 +269,7 @@ end
 rep = JSON.parse(response.body)
 @me_id = rep["data"][0]["id"]
 
+#thread to join and part channels that are live
 Thread.start do
     loop do
         # each 2 minutes check if the channels are live and if the bot is in the channels
@@ -268,11 +277,13 @@ Thread.start do
         p "checking channels"
         liveChannels = getLiveChannels()
         @channels.each do |channel|
+            #if the channel is live and the bot is not in the channel
             if liveChannels.include?(channel) && !@joinedChannels.include?(channel)
                 @socket.puts("JOIN ##{channel}")
                 p "JOIN ##{channel}"
                 @joinedChannels << channel
             end
+            #if the channel is not live and the bot is in the channel
             if !liveChannels.include?(channel) && @joinedChannels.include?(channel)
                 @socket.puts("PART ##{channel}")
                 p "PART ##{channel}"
@@ -282,6 +293,7 @@ Thread.start do
     end
 end
 
+#main loop
 while @running do
     #is the socket readable
     readable = IO.select([@socket])
@@ -295,7 +307,6 @@ while @running do
             message.each do |m|
                 message = parseMessage(m)
             end
-
             puts ""
             print "#{message[:command][:command]} #{message[:source][:user]}: "
             puts message[:params][:message]
@@ -421,6 +432,7 @@ while @running do
                 print "NOTICE : "
                 p message[:params][:message]
             end
+            #the server sends a RECONNECT message when it needs to terminate the connection
             if message[:command][:command] == "RECONNECT"
                 p "TWITCH IRC needs to terminate connection for maintenance"
                 p "Reconnecting in 15 minutes"
@@ -437,6 +449,7 @@ while @running do
             end
         else
             p "message is nil"
+            sleep 5
             refreshAccess()
         end
     end
