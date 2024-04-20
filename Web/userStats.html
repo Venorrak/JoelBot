@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Venorrak - User Stats</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/2.3.3/purify.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -137,13 +138,23 @@
         <table class="userList" id="table-user">
         </table>
         <script>
-            async function getUserData() {
-                const users = await fetch('/joels/users/data', { method: 'GET' }).then(response => response.json());
+            async function getUserData(tri) {
+                if(tri == 1){
+                    tri = "name";
+                } else if(tri == 2){
+                    tri = "creationDate";
+                } else if(tri == 3){
+                    tri = "count";
+                }else{
+                    tri = "count";
+                }
+                adress = "/joels/users/data?sort=" + tri;
+                const users = await fetch(adress, { method: 'GET' }).then(response => response.json());
                 const table = document.getElementById('table-user');
-                table.innerHTML = '<tr><th>User</th><th>Since</th><th>Count</th></tr>';
+                table.innerHTML = '<tr><th onclick="getUserData(1)">User</th><th onclick="getUserData(2)">Since</th><th onclick="getUserData(3)">Count</th></tr>';
                 for( const u of users){
                     const tr = document.createElement('tr');
-                    tr.innerHTML = `<td><a href="https://www.twitch.tv/${u.name}" target="blank">${u.name}</a></td><td>${u.date}</td><td>${u.count}</td>`;
+                    tr.innerHTML = `<td><a href="https://www.twitch.tv/${DOMPurify.sanitize(u.name)}" target="blank">${DOMPurify.sanitize(u.name)}</a></td><td>${u.date}</td><td>${u.count}</td>`;
                     table.appendChild(tr);
                 }
             }

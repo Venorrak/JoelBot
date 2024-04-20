@@ -37,10 +37,19 @@ get '/joels/channels' do
 end
 
 get '/joels/users/data' do
-    
     listUsers = Array.new
-    client.query("SELECT users.name, users.creationDate AS 'date', joels.count FROM users join joels on joels.user_id = users.id ORDER BY IFNULL(joels.count, 0) DESC;").each do |row|
-        listUsers.push(row)
+    if params[:sort] == "count"
+        client.query("SELECT users.name, users.creationDate AS 'date', joels.count FROM users join joels on joels.user_id = users.id ORDER BY IFNULL(joels.count, 0) DESC;").each do |row|
+            listUsers.push(row)
+        end
+    elsif params[:sort] == "creationDate"
+        client.query("SELECT users.name, users.creationDate AS 'date', joels.count FROM users join joels on joels.user_id = users.id ORDER BY users.creationDate DESC;").each do |row|
+            listUsers.push(row)
+        end
+    elsif params[:sort] == "name"
+        client.query("SELECT users.name, users.creationDate AS 'date', joels.count FROM users join joels on joels.user_id = users.id ORDER BY users.name;").each do |row|
+            listUsers.push(row)
+        end
     end
     return [
         200,
@@ -51,8 +60,18 @@ end
 
 get '/joels/channels/data' do
     listChannels = Array.new
-    client.query("SELECT channels.name, channels.creationDate AS 'date', channelJoels.count FROM channels join channelJoels on channelJoels.channel_id = channels.id ORDER BY IFNULL(channelJoels.count, 0) DESC;").each do |row|
-        listChannels.push(row)
+    if params[:sort] == "count"
+        client.query("SELECT channels.name, channels.creationDate AS 'date', channelJoels.count FROM channels join channelJoels on channelJoels.channel_id = channels.id ORDER BY IFNULL(channelJoels.count, 0) DESC;").each do |row|
+            listChannels.push(row)
+        end
+    elsif params[:sort] == "creationDate"
+        client.query("SELECT channels.name, channels.creationDate AS 'date', channelJoels.count FROM channels join channelJoels on channelJoels.channel_id = channels.id ORDER BY channels.creationDate DESC;").each do |row|
+            listChannels.push(row)
+        end
+    elsif params[:sort] == "name"
+        client.query("SELECT channels.name, channels.creationDate AS 'date', channelJoels.count FROM channels join channelJoels on channelJoels.channel_id = channels.id ORDER BY channels.name;").each do |row|
+            listChannels.push(row)
+        end
     end
     return [
         200,
