@@ -177,6 +177,7 @@ end
 #function to get the access token for API and IRC
 def getAccess()
     oauthToken = nil
+    #https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/#device-code-grant-flow
     response = $server.post("/oauth2/device") do |req|
         req.headers["Content-Type"] = "application/x-www-form-urlencoded"
         req.body = "client_id=#{@client_id}&scopes=chat:read+chat:edit+user:bot+user:write:chat+channel:bot+user:manage:whispers"
@@ -189,6 +190,7 @@ def getAccess()
     puts "Press enter when you have authorized the app"
     wait = gets.chomp
 
+    #https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/#authorization-code-grant-flow
     response = $server.post("/oauth2/token") do |req|
         req.body = "client_id=#{@client_id}&scopes=channel:manage:broadcast,user:manage:whispers&device_code=#{device_code}&grant_type=urn:ietf:params:oauth:grant-type:device_code"
     end
@@ -209,6 +211,7 @@ end
 
 #function to refresh the access token for API and IRC
 def refreshAccess()
+    #https://dev.twitch.tv/docs/authentication/refresh-tokens/#how-to-use-a-refresh-token
     response = $server.post("/oauth2/token") do |req|
         req.headers["Content-Type"] = "application/x-www-form-urlencoded"
         req.body = "grant_type=refresh_token&refresh_token=#{@refreshToken}&client_id=#{@client_id}&client_secret=#{@clientSecret}"
@@ -232,6 +235,7 @@ end
 def getLiveChannels()
     liveChannels = []
     channelsString = ""
+    #https://dev.twitch.tv/docs/api/reference/#get-streams
     @channels.each do |channel|
         response = $APItwitch.get("/helix/streams?user_login=#{channel}") do |req|
             req.headers["Authorization"] = "Bearer #{@APItoken}"
@@ -261,6 +265,7 @@ def loginIRC(oauthToken)
     @socket = TCPSocket.new('irc.chat.twitch.tv', 6667)
     @running = true
     #send the login information to the server
+    #https://dev.twitch.tv/docs/irc/authenticate-bot/#sending-the-pass-and-nick-messages
     @socket.puts("CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands")
     p "CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands"
     @socket.puts("PASS oauth:#{oauthToken}")
@@ -283,6 +288,7 @@ end
 getAccess()
 
 #get the bot id from the API
+#https://dev.twitch.tv/docs/api/reference/#get-users
 response = $APItwitch.get("/helix/users?login=#{@nickname}") do |req|
     req.headers["Authorization"] = "Bearer #{@APItoken}"
     req.headers["Client-Id"] = @client_id
