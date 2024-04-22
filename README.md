@@ -44,10 +44,10 @@ Now create a new file in the "bot" directory named "credentials.rb".
 Inside, write the following content with the corresponding data.
 ```
 #client id
-@client_id = "ylvt554e3xy3lkgkhobewem0bxzdgv"
+@client_id = "client id"
 
 #client secret
-@clientSecret = "ucn293zecfym05qbnxvm2ky2mqu1u1"
+@clientSecret = "client secret"
 
 #Channels tracked by the bot
 @channels = ["jakecreatesstuff", "venorrak", "lcolonq"]
