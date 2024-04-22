@@ -4,22 +4,37 @@
 #Create a user that the bot can use for the DB
 #In order for this file to work you need to install ruby and the gems in the gemfile
 
+
+# create a file named credentials.rb in the same directory as this file with the following content uncommented and filled in
+# --------------------------------------credentials.rb-----------------------------------------
 #@client_id = "your client id"
 #@clientSecret = "your client secret"
 
 #nickname of the bot
 #@nickname = "something"
 
-#channel to connect to
+#channel to track
 #all lowercase
 #@channels = ["channel1", "channel2", "channel3"]
+# ------------------------------------------end of file-----------------------------------------
 
+
+#----------------------------------------------------------------------------------------------
+#---------------------------------------global variables---------------------------------------
+#----------------------------------------------------------------------------------------------
+
+#token to access the API and IRC
 @APItoken = nil
+#channels currently live and joined
 @joinedChannels = []
+#token to refresh the access token
 @refreshToken = nil
+#array of joels to search for in the messages
 @joels = ["GoldenJoel" , "Joel2" , "Joeler" , "Joel" , "jol" , "JoelCheck" , "JoelbutmywindowsXPiscrashing" , "JOELLINES"]
 
-
+#----------------------------------------------------------------------------------------------
+#-----------------------------------required gems and libraries--------------------------------
+#----------------------------------------------------------------------------------------------
 require "bundler/inline"
 require "json"
 require "pp"
@@ -36,9 +51,9 @@ require "faraday"
 require "mysql2"
 require_relative "credentials.rb"
 
-
-
-
+#------------------------------------------------------------------------------------------------
+# ----------------------------connect to the different services----------------------------------
+#------------------------------------------------------------------------------------------------
 
 #connect to the database
 @client = Mysql2::Client.new(:host => "localhost", :username => "bot", :password => "joel")
@@ -54,11 +69,12 @@ $APItwitch = Faraday.new(url: "https://api.twitch.tv") do |conn|
     conn.request :url_encoded
 end
 
-
-
 #open socket to the irc server
 @socket = TCPSocket.new('irc.chat.twitch.tv', 6667)
 
+#-------------------------------------------------------------------------------------------------
+# ----------------------------------functions and methods-----------------------------------------
+#-------------------------------------------------------------------------------------------------
 #parse the message from the irc server
 #original parser in javascript https://dev.twitch.tv/docs/irc/example-parser/
 #for this parser I just looked at what the final result should look like and made it work
@@ -259,9 +275,14 @@ def loginIRC(oauthToken)
     end
 end
 
+#---------------------------------------------------------------------------------------------
+#--------------------------------------main code----------------------------------------------
+#---------------------------------------------------------------------------------------------
+
+#get the access token for the API and IRC
 getAccess()
 
-#get the user id from the API
+#get the bot id from the API
 response = $APItwitch.get("/helix/users?login=#{@nickname}") do |req|
     req.headers["Authorization"] = "Bearer #{@APItoken}"
     req.headers["Client-Id"] = @client_id
@@ -454,5 +475,3 @@ while @running do
         end
     end
 end
-
-
