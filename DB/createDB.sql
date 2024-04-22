@@ -1,4 +1,7 @@
-CREATE DATABASE joelScan IF NOT EXISTS;
+CREATE DATABASE joelScan;
+
+CREATE USER 'bot'@'localhost' IDENTIFIED BY 'joel';
+GRANT ALL ON *.* TO 'bot'@'localhost'
 
 USE joelScan;
 

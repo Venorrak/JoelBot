@@ -22,6 +22,11 @@ gem install faraday
 ```
 gem install mysql2
 ```
+if you have problems downloading the mysql2 gem try
+```
+sudo apt-get install default-libmysqlclient-dev
+```
+and try installing the gem again.
 
 ## Database setup
 I personnaly used mariaDb as my database but I think mysql will work if you have it installed.
