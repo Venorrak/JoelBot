@@ -324,7 +324,7 @@ end
 #main loop
 while @running do
     #is the socket readable
-    readable = IO.select([@socket])
+    readable = IO.select([@socket], nil, nil, 1) rescue nil
     if readable
         #read the message
         message = @socket.gets
@@ -407,6 +407,38 @@ while @running do
                             end
                             #add the channel to the channelJoels table and set the count to 1
                             @client.query("INSERT INTO channelJoels VALUES (DEFAULT, #{channel_id}, 1);")
+
+                            #register the channel owner to the user database if it doesn't exist
+                            channelOwnerExists = false
+                            #sql request to search if user is in the database
+                            @client.query("SELECT * FROM users WHERE name = '#{message[:command][:channel].delete_prefix("#")}';").each do |row|
+                                channelOwnerExists = true
+                            end
+                            if channelOwnerExists == false
+                                $APItwitch.get("/helix/users?login=#{message[:command][:channel]}") do |req|
+                                    req.headers["Authorization"] = "Bearer #{@APItoken}"
+                                    req.headers["Client-Id"] = @client_id
+                                end
+                                begin
+                                    rep = JSON.parse(response.body)
+                                    rep["data"].each do |user|
+                                        twitch_id = user["id"]
+                                        pfp = user["profile_image_url"]
+                                        email = ''
+                                    end
+                                    p "twitch_id : #{twitch_id}"
+                                    p "pfp : #{pfp}"
+                                    @client.query("INSERT INTO users VALUES (DEFAULT, '#{twitch_id}', '#{pfp}', '#{email}', '#{name}', '#{DateTime.now.strftime("%Y-%m-%d")}');")
+                                    #get the id of the new user
+                                    @client.query("SELECT id FROM users WHERE name = '#{name}';").each do |row|
+                                        user_id = row["id"]
+                                    end
+                                    #add the user to the joels table and set the count to 1
+                                    @client.query("INSERT INTO joels VALUES (DEFAULT, #{user_id}, 1);")
+                                rescue
+                                    refreshAccess()
+                                end
+                            end
                         end
                     end
                     #if the word is not empty or nil
