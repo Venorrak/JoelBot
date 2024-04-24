@@ -278,6 +278,7 @@ def loginIRC(oauthToken)
         @socket.puts("JOIN ##{channel}")
         @joinedChannels << channel
     end
+    @socket.puts("JOIN ##{@nickname}")
 end
 
 #---------------------------------------------------------------------------------------------
@@ -367,14 +368,33 @@ while @running do
                         #if user is not in the database
                         if userExits == false
                             user_id = 0
+                            twitch_id = nil
+                            pfp = nil
+                            email = nil
                             #add the user to the database
-                            @client.query("INSERT INTO users VALUES (DEFAULT, '#{name}', '#{DateTime.now.strftime("%Y-%m-%d")}');")
-                            #get the id of the new user
-                            @client.query("SELECT id FROM users WHERE name = '#{name}';").each do |row|
-                                user_id = row["id"]
+                            $APItwitch.get("/helix/users?login=#{name}") do |req|
+                                req.headers["Authorization"] = "Bearer #{@APItoken}"
+                                req.headers["Client-Id"] = @client_id
                             end
-                            #add the user to the joels table and set the count to 1
-                            @client.query("INSERT INTO joels VALUES (DEFAULT, #{user_id}, 1);")
+                            begin
+                                rep = JSON.parse(response.body)
+                                rep["data"].each do |user|
+                                    twitch_id = user["id"]
+                                    pfp = user["profile_image_url"]
+                                    email = ''
+                                end
+                                p "twitch_id : #{twitch_id}"
+                                p "pfp : #{pfp}"
+                                @client.query("INSERT INTO users VALUES (DEFAULT, '#{twitch_id}', '#{pfp}', '#{email}', '#{name}', '#{DateTime.now.strftime("%Y-%m-%d")}');")
+                                #get the id of the new user
+                                @client.query("SELECT id FROM users WHERE name = '#{name}';").each do |row|
+                                    user_id = row["id"]
+                                end
+                                #add the user to the joels table and set the count to 1
+                                @client.query("INSERT INTO joels VALUES (DEFAULT, #{user_id}, 1);")
+                            rescue
+                                refreshAccess()
+                            end
                         end
                         #if channel is not in the database
                         if channelExists == false

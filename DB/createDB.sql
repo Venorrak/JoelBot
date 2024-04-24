@@ -7,6 +7,8 @@ USE joelScan;
 
 CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
+    twitch_id INT NOT NULL,
+    pfp VARCHAR(200) NOT NULL,
     name VARCHAR(100) NOT NULL,
     creationDate DATE NOT NULL
 );
