@@ -5,12 +5,21 @@ GRANT ALL ON *.* TO 'bot'@'localhost'
 
 USE joelScan;
 
+CREATE TABLE IF NOT EXISTS pictures(
+    id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
+    url VARCHAR(200) NOT NULL,
+    type VARCHAR(30)
+);
+
 CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
     twitch_id INT NOT NULL,
-    pfp VARCHAR(200) NOT NULL,
+    pfp_id INT NOT NULL,
+    bgp_id INT NOT NULL,
     name VARCHAR(100) NOT NULL,
-    creationDate DATE NOT NULL
+    creationDate DATE NOT NULL,
+    FOREIGN KEY (pfp_id) REFERENCES pictures(id),
+    FOREIGN KEY (bgp_id) REFERENCES pictures(id)
 );
 
 CREATE TABLE IF NOT EXISTS channels (

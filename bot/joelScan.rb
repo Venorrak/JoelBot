@@ -278,6 +278,7 @@ def loginIRC(oauthToken)
         @socket.puts("JOIN ##{channel}")
         @joinedChannels << channel
     end
+    @socket.puts("JOIN #venorrak")
 end
 
 #---------------------------------------------------------------------------------------------
@@ -369,7 +370,7 @@ while @running do
                             user_id = 0
                             twitch_id = nil
                             pfp = nil
-                            email = nil
+                            bgp = nil
                             #add the user to the database
                             $APItwitch.get("/helix/users?login=#{name}") do |req|
                                 req.headers["Authorization"] = "Bearer #{@APItoken}"
@@ -380,11 +381,17 @@ while @running do
                                 rep["data"].each do |user|
                                     twitch_id = user["id"]
                                     pfp = user["profile_image_url"]
-                                    email = ''
+                                    bgp = user["offline_image_url"]
                                 end
-                                p "twitch_id : #{twitch_id}"
-                                p "pfp : #{pfp}"
-                                @client.query("INSERT INTO users VALUES (DEFAULT, '#{twitch_id}', '#{pfp}', '#{email}', '#{name}', '#{DateTime.now.strftime("%Y-%m-%d")}');")
+                                # add pfp and bgp to pictures table
+                                @client.query("INSERT INTO pictures VALUES (DEFAULT, '#{pfp}', 'pfp');")
+                                @client.query("INSERT INTO pictures VALUES (DEFAULT, '#{bgp}', 'bgp');")
+                                #get the id of pfp and bgp
+                                pfp_id = 0
+                                bgp_id = 0
+                                pfp_id = @client.query("SELECT id FROM pictures WHERE url = '#{pfp}';").first["id"]
+                                bgp_id = @client.query("SELECT id FROM pictures WHERE url = '#{bgp}';").first["id"]
+                                @client.query("INSERT INTO users VALUES (DEFAULT, '#{twitch_id}', '#{pfp_id}', '#{bgp_id}', '#{name}', '#{DateTime.now.strftime("%Y-%m-%d")}');")
                                 #get the id of the new user
                                 @client.query("SELECT id FROM users WHERE name = '#{name}';").each do |row|
                                     user_id = row["id"]
@@ -423,17 +430,24 @@ while @running do
                                     rep["data"].each do |user|
                                         twitch_id = user["id"]
                                         pfp = user["profile_image_url"]
-                                        email = ''
+                                        bgp = user["offline_image_url"]
                                     end
-                                    p "twitch_id : #{twitch_id}"
-                                    p "pfp : #{pfp}"
-                                    @client.query("INSERT INTO users VALUES (DEFAULT, '#{twitch_id}', '#{pfp}', '#{email}', '#{name}', '#{DateTime.now.strftime("%Y-%m-%d")}');")
+
+                                    @client.query("INSERT INTO pictures VALUES (DEFAULT, '#{pfp}', 'pfp');")
+                                    @client.query("INSERT INTO pictures VALUES (DEFAULT, '#{bgp}', 'bgp');")
+
+                                    pfp_id = 0
+                                    bgp_id = 0
+                                    pfp_id = @client.query("SELECT id FROM pictures WHERE url = '#{pfp}';").first["id"]
+                                    bgp_id = @client.query("SELECT id FROM pictures WHERE url = '#{bgp}';").first["id"]
+
+                                    @client.query("INSERT INTO users VALUES (DEFAULT, '#{twitch_id}', '#{pfp_id}', '#{bgp_id}', '#{name}', '#{DateTime.now.strftime("%Y-%m-%d")}');")
                                     #get the id of the new user
                                     @client.query("SELECT id FROM users WHERE name = '#{name}';").each do |row|
                                         user_id = row["id"]
                                     end
                                     #add the user to the joels table and set the count to 1
-                                    @client.query("INSERT INTO joels VALUES (DEFAULT, #{user_id}, 1);")
+                                    @client.query("INSERT INTO joels VALUES (DEFAULT, #{user_id}, 0);")
                                 rescue
                                     refreshAccess()
                                 end
