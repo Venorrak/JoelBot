@@ -278,7 +278,6 @@ def loginIRC(oauthToken)
         @socket.puts("JOIN ##{channel}")
         @joinedChannels << channel
     end
-    @socket.puts("JOIN ##{@nickname}")
 end
 
 #---------------------------------------------------------------------------------------------
