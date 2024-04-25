@@ -372,7 +372,7 @@ while @running do
                             pfp = nil
                             bgp = nil
                             #add the user to the database
-                            $APItwitch.get("/helix/users?login=#{name}") do |req|
+                            response = $APItwitch.get("/helix/users?login=#{name}") do |req|
                                 req.headers["Authorization"] = "Bearer #{@APItoken}"
                                 req.headers["Client-Id"] = @client_id
                             end
@@ -421,7 +421,8 @@ while @running do
                                 channelOwnerExists = true
                             end
                             if channelOwnerExists == false
-                                $APItwitch.get("/helix/users?login=#{message[:command][:channel]}") do |req|
+				                name = message[:command][:channel].delete_prefix("#")
+                                response = $APItwitch.get("/helix/users?login=#{name}") do |req|
                                     req.headers["Authorization"] = "Bearer #{@APItoken}"
                                     req.headers["Client-Id"] = @client_id
                                 end
@@ -440,10 +441,9 @@ while @running do
                                     bgp_id = 0
                                     pfp_id = @client.query("SELECT id FROM pictures WHERE url = '#{pfp}';").first["id"]
                                     bgp_id = @client.query("SELECT id FROM pictures WHERE url = '#{bgp}';").first["id"]
-
-                                    @client.query("INSERT INTO users VALUES (DEFAULT, '#{twitch_id}', '#{pfp_id}', '#{bgp_id}', '#{name}', '#{DateTime.now.strftime("%Y-%m-%d")}');")
+                                    @client.query("INSERT INTO users VALUES (DEFAULT, '#{twitch_id}', '#{pfp_id}', '#{bgp_id}', '#{message[:command][:channel].delete_prefix("#")}', '#{DateTime.now.strftime("%Y-%m-%d")}');")
                                     #get the id of the new user
-                                    @client.query("SELECT id FROM users WHERE name = '#{name}';").each do |row|
+                                    @client.query("SELECT id FROM users WHERE name = '#{message[:command][:channel].delete_prefix("#")}';").each do |row|
                                         user_id = row["id"]
                                     end
                                     #add the user to the joels table and set the count to 1
