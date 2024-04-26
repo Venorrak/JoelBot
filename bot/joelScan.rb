@@ -428,7 +428,6 @@ while @running do
                                 begin
                                     rep = JSON.parse(response.body)
                                     rep["data"].each do |user|
-					p user
                                         twitch_id = user["id"]
                                         pfp = user["profile_image_url"]
                                         bgp = user["offline_image_url"]
@@ -442,9 +441,7 @@ while @running do
                                     pfp_id = @client.query("SELECT id FROM pictures WHERE url = '#{pfp}';").first["id"]
                                     bgp_id = @client.query("SELECT id FROM pictures WHERE url = '#{bgp}';").first["id"]
                                     @client.query("INSERT INTO users VALUES (DEFAULT, '#{twitch_id}', '#{pfp_id}', '#{bgp_id}', '#{message[:command][:channel].delete_prefix("#")}', '#{DateTime.now.strftime("%Y-%m-%d")}');")
-                                    @client.query("INSERT INTO users VALUES (DEFAULT, '#{twitch_id}', '#{pfp_id}', '#{bgp_id}', '#{message[:command][:channel].delete_prefix("#")}', '#{DateTime.now.strftime("%Y-%m-%d")}');")
                                     #get the id of the new user
-                                    @client.query("SELECT id FROM users WHERE name = '#{message[:command][:channel].delete_prefix("#")}';").each do |row|
                                     @client.query("SELECT id FROM users WHERE name = '#{message[:command][:channel].delete_prefix("#")}';").each do |row|
                                         user_id = row["id"]
                                     end
