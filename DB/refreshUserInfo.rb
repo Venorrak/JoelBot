@@ -22,7 +22,7 @@ end
 
 #connect to the twitch api
 $APItwitch = Faraday.new(url: "https://api.twitch.tv") do |conn|
-    #conn.request :url_encoded
+    conn.request :url_encoded
 end
 
 oauthToken = nil

@@ -27,7 +27,7 @@ require "json"
 require "pp"
 require "socket"
 require "date"
-require 'timers'
+require 'absolute_time'
 
 gemfile do
     source "http://rubygems.org"
@@ -51,8 +51,8 @@ require_relative "credentials.rb"
 @refreshToken = nil
 #array of joels to search for in the messages
 @joels = ["GoldenJoel" , "Joel2" , "Joeler" , "Joel" , "jol" , "JoelCheck" , "JoelbutmywindowsXPiscrashing" , "JOELLINES", "Joeling"]
-#create timers
-timers = Timers::Group.new
+#last time refresh was made
+@lastRefresh = AbsoluteTime.now
 
 #------------------------------------------------------------------------------------------------
 # ----------------------------connect to the different services----------------------------------
@@ -215,7 +215,6 @@ def getAccess()
         req.body = "client_id=#{@client_id}&scopes=channel:manage:broadcast,user:manage:whispers&device_code=#{device_code}&grant_type=urn:ietf:params:oauth:grant-type:device_code"
     end
     rep = JSON.parse(response.body)
-    oauthToken = rep["access_token"]
     @APItoken = rep["access_token"]
     @refreshToken = rep["refresh_token"]
 
@@ -226,7 +225,7 @@ def getAccess()
     hours = timeUntilExpire / 3600
     timeString = "#{hours}:#{minutes}:#{seconds}"
     p "token expires in #{timeString}"
-    loginIRC(oauthToken)
+    loginIRC(@APItoken)
 end
 
 #function to refresh the access token for API and IRC
@@ -245,7 +244,6 @@ def refreshAccess()
     rep = JSON.parse(response.body)
     @APItoken = rep["access_token"]
     @refreshToken = rep["refresh_token"]
-
     loginIRC(@APItoken)
 end
 
@@ -279,6 +277,7 @@ end
 def loginIRC(oauthToken)
     #close the socket and open a new one
     @socket.close
+    @socket = nil
     @socket = TCPSocket.new('irc.chat.twitch.tv', 6667)
     @running = true
     #send the login information to the server
@@ -290,9 +289,7 @@ def loginIRC(oauthToken)
     @socket.puts("NICK #{@nickname}")
     p "NICK #{@nickname}"
     #join the channels that are live
-    p "before getLiveChannels"
     liveChannels = getLiveChannels()
-    p "after getLiveChannels"
     liveChannels.each do |channel|
         @socket.puts("JOIN ##{channel}")
         @joinedChannels << channel
@@ -397,10 +394,14 @@ Thread.start do
     end
 end
 
-accessRefreshTimer = timers.every(7200) { refreshAccess() }
-
 #main loop
 while @running do
+    #refresh connection each 2 hours
+    now = AbsoluteTime.now
+    if (now - @lastRefresh) >= 7200
+        refreshAccess()
+        @lastRefresh = now
+    end
     #is the socket readable
     readable = IO.select([@socket], nil, nil, 1) rescue nil
     if readable
@@ -522,6 +523,7 @@ while @running do
             end
             #the server sends a RECONNECT message when it needs to terminate the connection
             if message[:command][:command] == "RECONNECT"
+                sendNotif("TWITCH IRC needs to terminate connection for maintenance", "Alert Reconnect in 15 minutes")
                 p "TWITCH IRC needs to terminate connection for maintenance"
                 p "Reconnecting in 15 minutes"
                 sleep 900
