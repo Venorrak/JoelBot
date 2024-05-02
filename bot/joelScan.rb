@@ -20,19 +20,6 @@
 
 
 #----------------------------------------------------------------------------------------------
-#---------------------------------------global variables---------------------------------------
-#----------------------------------------------------------------------------------------------
-
-#token to access the API and IRC
-@APItoken = nil
-#channels currently live and joined
-@joinedChannels = []
-#token to refresh the access token
-@refreshToken = nil
-#array of joels to search for in the messages
-@joels = ["GoldenJoel" , "Joel2" , "Joeler" , "Joel" , "jol" , "JoelCheck" , "JoelbutmywindowsXPiscrashing" , "JOELLINES"]
-
-#----------------------------------------------------------------------------------------------
 #-----------------------------------required gems and libraries--------------------------------
 #----------------------------------------------------------------------------------------------
 require "bundler/inline"
@@ -40,6 +27,7 @@ require "json"
 require "pp"
 require "socket"
 require "date"
+require 'absolute_time'
 
 gemfile do
     source "http://rubygems.org"
@@ -50,6 +38,21 @@ end
 require "faraday"
 require "mysql2"
 require_relative "credentials.rb"
+
+#----------------------------------------------------------------------------------------------
+#---------------------------------------global variables---------------------------------------
+#----------------------------------------------------------------------------------------------
+
+#token to access the API and IRC
+@APItoken = nil
+#channels currently live and joined
+@joinedChannels = []
+#token to refresh the access token
+@refreshToken = nil
+#array of joels to search for in the messages
+@joels = ["GoldenJoel" , "Joel2" , "Joeler" , "Joel" , "jol" , "JoelCheck" , "JoelbutmywindowsXPiscrashing" , "JOELLINES", "Joeling"]
+#last time refresh was made
+@lastRefresh = AbsoluteTime.now
 
 #------------------------------------------------------------------------------------------------
 # ----------------------------connect to the different services----------------------------------
@@ -72,9 +75,15 @@ end
 #open socket to the irc server
 @socket = TCPSocket.new('irc.chat.twitch.tv', 6667)
 
+#connect to my ntfy server
+$NTFYDerver = Faraday.new(url: "https://ntfy.venorrak.dev") do |conn|
+    conn.request :url_encoded
+end
+
 #-------------------------------------------------------------------------------------------------
 # ----------------------------------functions and methods-----------------------------------------
 #-------------------------------------------------------------------------------------------------
+
 #parse the message from the irc server
 #original parser in javascript https://dev.twitch.tv/docs/irc/example-parser/
 #for this parser I just looked at what the final result should look like and made it work
@@ -174,6 +183,17 @@ def parseMessage(message)
     return parsedMessage
 end
 
+#function to send a notification to the ntfy server on JoelBot subject
+def sendNotif(message, title)
+    rep = $NTFYDerver.post("/JoelBot") do |req|
+        req.headers["host"] = "ntfy.venorrak.dev"
+        req.headers["Priority"] = "5"
+        req.headers["Title"] = title
+        req.body = message
+    end
+    pp rep.body
+end
+
 #function to get the access token for API and IRC
 def getAccess()
     oauthToken = nil
@@ -195,7 +215,6 @@ def getAccess()
         req.body = "client_id=#{@client_id}&scopes=channel:manage:broadcast,user:manage:whispers&device_code=#{device_code}&grant_type=urn:ietf:params:oauth:grant-type:device_code"
     end
     rep = JSON.parse(response.body)
-    oauthToken = rep["access_token"]
     @APItoken = rep["access_token"]
     @refreshToken = rep["refresh_token"]
 
@@ -206,11 +225,17 @@ def getAccess()
     hours = timeUntilExpire / 3600
     timeString = "#{hours}:#{minutes}:#{seconds}"
     p "token expires in #{timeString}"
-    loginIRC(oauthToken)
+    loginIRC(@APItoken)
 end
 
 #function to refresh the access token for API and IRC
 def refreshAccess()
+    sendNotif("Refreshing access token", "Alert Acess Refresh")
+
+    @client = nil
+    @client = Mysql2::Client.new(:host => "localhost", :username => "bot", :password => "joel")
+    @client.query("USE joelScan;")
+
     #https://dev.twitch.tv/docs/authentication/refresh-tokens/#how-to-use-a-refresh-token
     response = $server.post("/oauth2/token") do |req|
         req.headers["Content-Type"] = "application/x-www-form-urlencoded"
@@ -219,15 +244,6 @@ def refreshAccess()
     rep = JSON.parse(response.body)
     @APItoken = rep["access_token"]
     @refreshToken = rep["refresh_token"]
-
-    timeUntilExpire = rep["expires_in"]
-    #convert seconds to time
-    seconds = timeUntilExpire % 60
-    minutes = (timeUntilExpire / 60) % 60
-    hours = timeUntilExpire / 3600
-    timeString = "#{hours}:#{minutes}:#{seconds}"
-    p "token expires in #{timeString}"
-
     loginIRC(@APItoken)
 end
 
@@ -251,7 +267,6 @@ def getLiveChannels()
         rescue
             #if the response is not json or doesn't contain the data key
             liveChannels = []
-            refreshAccess()
         end
     end
     p liveChannels
@@ -262,6 +277,7 @@ end
 def loginIRC(oauthToken)
     #close the socket and open a new one
     @socket.close
+    @socket = nil
     @socket = TCPSocket.new('irc.chat.twitch.tv', 6667)
     @running = true
     #send the login information to the server
@@ -280,6 +296,68 @@ def loginIRC(oauthToken)
     end
 end
 
+#function to print the message in a clean way   
+def printClean(message)
+    puts ""
+    print "#{message[:command][:command]} #{message[:source][:user]}: "
+    puts message[:params][:message]
+end
+
+#function to get the user info from the API
+def getTwitchUser(name)
+    p "getTwitchUser"
+    response = $APItwitch.get("/helix/users?login=#{name}") do |req|
+        req.headers["Authorization"] = "Bearer #{@APItoken}"
+        req.headers["Client-Id"] = @client_id
+    end
+    begin
+        rep = JSON.parse(response.body)
+    rescue
+        rep = {}
+    end
+    return rep
+end
+
+#function to send a whisper
+def sendWhisper(from, to, message)
+    p "sending whisper"
+    response = $APItwitch.post("/helix/whispers?from_user_id=#{from}&to_user_id=#{to}") do |req|
+        req.headers["Authorization"] = "Bearer #{@APItoken}"
+        req.headers["Client-Id"] = @client_id
+        req.headers["Content-Type"] = "application/json"
+        req.body = {"message": message}.to_json
+    end
+    p response.body
+end
+
+#create a user and joel in the database
+def createUserDB(name, userData, startJoels)
+    pfp = nil
+    bgp = nil
+    twitch_id = nil
+    user_id = 0
+    pfp_id = 0
+    bgp_id = 0
+
+    userData["data"].each do |user|
+        twitch_id = user["id"]
+        pfp = user["profile_image_url"]
+        bgp = user["offline_image_url"]
+    end
+    @client.query("INSERT INTO pictures VALUES (DEFAULT, '#{pfp}', 'pfp');")
+    @client.query("INSERT INTO pictures VALUES (DEFAULT, '#{bgp}', 'bgp');")
+    
+    pfp_id = @client.query("SELECT id FROM pictures WHERE url = '#{pfp}';").first["id"]
+    bgp_id = @client.query("SELECT id FROM pictures WHERE url = '#{bgp}';").first["id"]
+    @client.query("INSERT INTO users VALUES (DEFAULT, '#{twitch_id}', '#{pfp_id}', '#{bgp_id}', '#{name}', '#{DateTime.now.strftime("%Y-%m-%d")}');")
+    #get the id of the new user
+    @client.query("SELECT id FROM users WHERE name = '#{name}';").each do |row|
+        user_id = row["id"]
+    end
+    #add the user to the joels table and set the count to 1
+    @client.query("INSERT INTO joels VALUES (DEFAULT, #{user_id}, #{startJoels});")
+end
+
 #---------------------------------------------------------------------------------------------
 #--------------------------------------main code----------------------------------------------
 #---------------------------------------------------------------------------------------------
@@ -289,11 +367,7 @@ getAccess()
 
 #get the bot id from the API
 #https://dev.twitch.tv/docs/api/reference/#get-users
-response = $APItwitch.get("/helix/users?login=#{@nickname}") do |req|
-    req.headers["Authorization"] = "Bearer #{@APItoken}"
-    req.headers["Client-Id"] = @client_id
-end
-rep = JSON.parse(response.body)
+rep = getTwitchUser(@nickname)
 @me_id = rep["data"][0]["id"]
 
 #thread to join and part channels that are live
@@ -322,6 +396,12 @@ end
 
 #main loop
 while @running do
+    #refresh connection each 2 hours
+    now = AbsoluteTime.now
+    if (now - @lastRefresh) >= 7200
+        refreshAccess()
+        @lastRefresh = now
+    end
     #is the socket readable
     readable = IO.select([@socket], nil, nil, 1) rescue nil
     if readable
@@ -333,10 +413,8 @@ while @running do
             #parse the message
             message.each do |m|
                 message = parseMessage(m)
+                printClean(message)
             end
-            puts ""
-            print "#{message[:command][:command]} #{message[:source][:user]}: "
-            puts message[:params][:message]
 
             messageWords = Array.new
             #if there is a message
@@ -366,48 +444,18 @@ while @running do
                         end
                         #if user is not in the database
                         if userExits == false
-                            user_id = 0
-                            twitch_id = nil
-                            pfp = nil
-                            bgp = nil
                             #add the user to the database
-                            response = response = $APItwitch.get("/helix/users?login=#{name}") do |req|
-                                req.headers["Authorization"] = "Bearer #{@APItoken}"
-                                req.headers["Client-Id"] = @client_id
-                            end
-                            begin
-                                rep = JSON.parse(response.body)
-                                rep["data"].each do |user|
-                                    twitch_id = user["id"]
-                                    pfp = user["profile_image_url"]
-                                    bgp = user["offline_image_url"]
-                                end
-                                # add pfp and bgp to pictures table
-                                @client.query("INSERT INTO pictures VALUES (DEFAULT, '#{pfp}', 'pfp');")
-                                @client.query("INSERT INTO pictures VALUES (DEFAULT, '#{bgp}', 'bgp');")
-                                #get the id of pfp and bgp
-                                pfp_id = 0
-                                bgp_id = 0
-                                pfp_id = @client.query("SELECT id FROM pictures WHERE url = '#{pfp}';").first["id"]
-                                bgp_id = @client.query("SELECT id FROM pictures WHERE url = '#{bgp}';").first["id"]
-                                @client.query("INSERT INTO users VALUES (DEFAULT, '#{twitch_id}', '#{pfp_id}', '#{bgp_id}', '#{name}', '#{DateTime.now.strftime("%Y-%m-%d")}');")
-                                #get the id of the new user
-                                @client.query("SELECT id FROM users WHERE name = '#{name}';").each do |row|
-                                    user_id = row["id"]
-                                end
-                                #add the user to the joels table and set the count to 1
-                                @client.query("INSERT INTO joels VALUES (DEFAULT, #{user_id}, 1);")
-                            rescue
-                                refreshAccess()
-                            end
+                            rep = getTwitchUser(name)
+                            createUserDB(name, rep, 1)
                         end
                         #if channel is not in the database
                         if channelExists == false
                             channel_id = 0
+                            channelName = message[:command][:channel].delete_prefix("#")
                             #add the channel to the database
-                            @client.query("INSERT INTO channels VALUES (DEFAULT, '#{message[:command][:channel].delete_prefix("#")}', '#{DateTime.now.strftime("%Y-%m-%d")}');")
+                            @client.query("INSERT INTO channels VALUES (DEFAULT, '#{channelName}', '#{DateTime.now.strftime("%Y-%m-%d")}');")
                             #get the id of the new channel
-                            @client.query("SELECT id FROM channels WHERE name = '#{message[:command][:channel].delete_prefix("#")}';").each do |row|
+                            @client.query("SELECT id FROM channels WHERE name = '#{channelName}';").each do |row|
                                 channel_id = row["id"]
                             end
                             #add the channel to the channelJoels table and set the count to 1
@@ -416,40 +464,13 @@ while @running do
                             #register the channel owner to the user database if it doesn't exist
                             channelOwnerExists = false
                             #sql request to search if user is in the database
-                            @client.query("SELECT * FROM users WHERE name = '#{message[:command][:channel].delete_prefix("#")}';").each do |row|
+                            @client.query("SELECT * FROM users WHERE name = '#{channelName}';").each do |row|
                                 channelOwnerExists = true
                             end
                             if channelOwnerExists == false
-				                name = message[:command][:channel].delete_prefix("#")
-                                response = $APItwitch.get("/helix/users?login=#{name}") do |req|
-                                    req.headers["Authorization"] = "Bearer #{@APItoken}"
-                                    req.headers["Client-Id"] = @client_id
-                                end
-                                begin
-                                    rep = JSON.parse(response.body)
-                                    rep["data"].each do |user|
-                                        twitch_id = user["id"]
-                                        pfp = user["profile_image_url"]
-                                        bgp = user["offline_image_url"]
-                                    end
-
-                                    @client.query("INSERT INTO pictures VALUES (DEFAULT, '#{pfp}', 'pfp');")
-                                    @client.query("INSERT INTO pictures VALUES (DEFAULT, '#{bgp}', 'bgp');")
-
-                                    pfp_id = 0
-                                    bgp_id = 0
-                                    pfp_id = @client.query("SELECT id FROM pictures WHERE url = '#{pfp}';").first["id"]
-                                    bgp_id = @client.query("SELECT id FROM pictures WHERE url = '#{bgp}';").first["id"]
-                                    @client.query("INSERT INTO users VALUES (DEFAULT, '#{twitch_id}', '#{pfp_id}', '#{bgp_id}', '#{message[:command][:channel].delete_prefix("#")}', '#{DateTime.now.strftime("%Y-%m-%d")}');")
-                                    #get the id of the new user
-                                    @client.query("SELECT id FROM users WHERE name = '#{message[:command][:channel].delete_prefix("#")}';").each do |row|
-                                        user_id = row["id"]
-                                    end
-                                    #add the user to the joels table and set the count to 1
-                                    @client.query("INSERT INTO joels VALUES (DEFAULT, #{user_id}, 0);")
-                                rescue
-                                    refreshAccess()
-                                end
+                                rep = getTwitchUser(channelName)
+                                createUserDB(channelName, rep, 0)
+                                sendNotif("New channel added to the database: #{channelName}", "Alert New Channel")
                             end
                         end
                     end
@@ -468,23 +489,12 @@ while @running do
                     user = messageWords[1] rescue nil
 
                     #get the user id of the person who sent the message
-                    response = $APItwitch.get("/helix/users?login=#{message[:source][:user]}") do |req|
-                        req.headers["Authorization"] = "Bearer #{@APItoken}"
-                        req.headers["Client-Id"] = @client_id
-                    end
-                    rep = JSON.parse(response.body)
-                    caller_id = rep["data"][0]["id"]
+                    caller_id = getTwitchUser(message[:source][:user])["data"][0]["id"]
 
                     #if the user is nil
                     if user == nil
                         #show commands
-                        response = $APItwitch.post("/helix/whispers?from_user_id=#{@me_id}&to_user_id=#{caller_id}") do |req|
-                            req.headers["Authorization"] = "Bearer #{@APItoken}"
-                            req.headers["Client-Id"] = @client_id
-                            req.headers["Content-Type"] = "application/json"
-                            req.body = {"message": "for now the only command is !JoelCount username to get the count of a user"}.to_json
-                        end
-                        p response.body
+                        sendWhisper(@me_id, caller_id, "for now the only command is !JoelCount username to get the count of a user")
                     else
                         userExits = false
                         #search the database for the user
@@ -492,23 +502,11 @@ while @running do
                             count = row["count"].to_i
                             userExits = true
                             #send the count to the user (whisper)
-                            response = $APItwitch.post("/helix/whispers?from_user_id=#{@me_id}&to_user_id=#{caller_id}") do |req|
-                                req.headers["Authorization"] = "Bearer #{@APItoken}"
-                                req.headers["Client-Id"] = @client_id
-                                req.headers["Content-Type"] = "application/json"
-                                req.body = {"message": "#{user} has said Joel #{count} times"}.to_json
-                            end
-                            p response.body
+                            sendWhisper(@me_id, caller_id, "#{user} has said Joel #{count} times")
                         end
                         if userExits == false
                             #if the user is not in the database
-                            response = $APItwitch.post("/helix/whispers?from_user_id=#{@me_id}&to_user_id=#{caller_id}") do |req|
-                                req.headers["Authorization"] = "Bearer #{@APItoken}"
-                                req.headers["Client-Id"] = @client_id
-                                req.headers["Content-Type"] = "application/json"
-                                req.body = {"message": "#{user} has not said Joel yet"}.to_json
-                            end
-                            p response.body
+                            sendWhisper(@me_id, caller_id, "#{user} has not said Joel yet")
                         end
                     end
                 end
@@ -525,6 +523,7 @@ while @running do
             end
             #the server sends a RECONNECT message when it needs to terminate the connection
             if message[:command][:command] == "RECONNECT"
+                sendNotif("TWITCH IRC needs to terminate connection for maintenance", "Alert Reconnect in 15 minutes")
                 p "TWITCH IRC needs to terminate connection for maintenance"
                 p "Reconnecting in 15 minutes"
                 sleep 900
