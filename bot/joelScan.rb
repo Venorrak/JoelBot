@@ -230,8 +230,6 @@ end
 
 #function to refresh the access token for API and IRC
 def refreshAccess()
-    sendNotif("Refreshing access token", "Alert Acess Refresh")
-
     @client = nil
     @client = Mysql2::Client.new(:host => "localhost", :username => "bot", :password => "joel")
     @client.query("USE joelScan;")
@@ -381,11 +379,13 @@ Thread.start do
             #if the channel is live and the bot is not in the channel
             if liveChannels.include?(channel) && !@joinedChannels.include?(channel)
                 @socket.puts("JOIN ##{channel}")
+                sendNotif("Bot joined ##{channel}", "Alert Bot Joined Channel")
                 p "JOIN ##{channel}"
                 @joinedChannels << channel
             end
             #if the channel is not live and the bot is in the channel
             if !liveChannels.include?(channel) && @joinedChannels.include?(channel)
+                sendNotif("Bot left ##{channel}", "Alert Bot Left Channel")
                 @socket.puts("PART ##{channel}")
                 p "PART ##{channel}"
                 @joinedChannels.delete(channel)
