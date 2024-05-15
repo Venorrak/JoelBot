@@ -356,6 +356,27 @@ def createUserDB(name, userData, startJoels)
     @client.query("INSERT INTO joels VALUES (DEFAULT, #{user_id}, #{startJoels});")
 end
 
+#create a channel and channelJoels in the database
+def createChannelDB(channelName)
+    channel_id = 0
+    #add the channel to the database
+    @client.query("INSERT INTO channels VALUES (DEFAULT, '#{channelName}', '#{DateTime.now.strftime("%Y-%m-%d")}');")
+    #get the id of the new channel
+    @client.query("SELECT id FROM channels WHERE name = '#{channelName}';").each do |row|
+        channel_id = row["id"]
+    end
+    #add the channel to the channelJoels table and set the count to 1
+    @client.query("INSERT INTO channelJoels VALUES (DEFAULT, #{channel_id}, 1);")
+
+    #register the channel owner to the user database if it doesn't exist
+    channelOwnerExists = false
+    #sql request to search if user is in the database
+    @client.query("SELECT * FROM users WHERE name = '#{channelName}';").each do |row|
+        channelOwnerExists = true
+    end
+    return channelOwnerExists
+end
+
 #---------------------------------------------------------------------------------------------
 #--------------------------------------main code----------------------------------------------
 #---------------------------------------------------------------------------------------------
@@ -441,6 +462,18 @@ while @running do
                             channel_id = row["id"]
                             #increment the count of the channel
                             @client.query("UPDATE channelJoels SET count = count + 1 WHERE channel_id = #{channel_id};")
+                            if channelExists
+                                streamJoelsExists = false
+                                #add joel to streamJoels of today if it exists or create it
+                                @client.query("SELECT * FROM streamJoels WHERE channel_id = #{channel_id} AND streamDate = '#{DateTime.now.strftime("%Y-%m-%d")}';").each do |row|
+                                    streamJoelsExists = true
+                                    streamJoels_id = row["id"]
+                                    @client.query("UPDATE streamJoels SET count = count + 1 WHERE id = #{streamJoels_id};")
+                                end
+                                if !streamJoelsExists
+                                    @client.query("INSERT INTO streamJoels VALUES (DEFAULT, #{channel_id}, 1, '#{DateTime.now.strftime("%Y-%m-%d")}');")
+                                end
+                            end
                         end
                         #if user is not in the database
                         if userExits == false
@@ -450,23 +483,10 @@ while @running do
                         end
                         #if channel is not in the database
                         if channelExists == false
-                            channel_id = 0
                             channelName = message[:command][:channel].delete_prefix("#")
-                            #add the channel to the database
-                            @client.query("INSERT INTO channels VALUES (DEFAULT, '#{channelName}', '#{DateTime.now.strftime("%Y-%m-%d")}');")
-                            #get the id of the new channel
-                            @client.query("SELECT id FROM channels WHERE name = '#{channelName}';").each do |row|
-                                channel_id = row["id"]
-                            end
-                            #add the channel to the channelJoels table and set the count to 1
-                            @client.query("INSERT INTO channelJoels VALUES (DEFAULT, #{channel_id}, 1);")
 
-                            #register the channel owner to the user database if it doesn't exist
-                            channelOwnerExists = false
-                            #sql request to search if user is in the database
-                            @client.query("SELECT * FROM users WHERE name = '#{channelName}';").each do |row|
-                                channelOwnerExists = true
-                            end
+                            channelOwnerExists = createChannelDB(channelName)
+                            
                             if channelOwnerExists == false
                                 rep = getTwitchUser(channelName)
                                 createUserDB(channelName, rep, 0)
