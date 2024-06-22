@@ -390,29 +390,35 @@ rep = getTwitchUser(@nickname)
 @me_id = rep["data"][0]["id"]
 
 #thread to join and part channels that are live
-Thread.start do
-    loop do
-        # each 2 minutes check if the channels are live and if the bot is in the channels
-        sleep 120
-        p "checking channels"
-        liveChannels = getLiveChannels()
-        @channels.each do |channel|
-            #if the channel is live and the bot is not in the channel
-            if liveChannels.include?(channel) && !@joinedChannels.include?(channel)
-                @socket.puts("JOIN ##{channel}")
-                sendNotif("Bot joined ##{channel}", "Alert Bot Joined Channel")
-                p "JOIN ##{channel}"
-                @joinedChannels << channel
-            end
-            #if the channel is not live and the bot is in the channel
-            if !liveChannels.include?(channel) && @joinedChannels.include?(channel)
-                sendNotif("Bot left ##{channel}", "Alert Bot Left Channel")
-                @socket.puts("PART ##{channel}")
-                p "PART ##{channel}"
-                @joinedChannels.delete(channel)
+begin
+    Thread.start do
+        loop do
+            # each 2 minutes check if the channels are live and if the bot is in the channels
+            sleep 120
+            p "checking channels"
+            liveChannels = getLiveChannels()
+            @channels.each do |channel|
+                #if the channel is live and the bot is not in the channel
+                if liveChannels.include?(channel) && !@joinedChannels.include?(channel)
+                    @socket.puts("JOIN ##{channel}")
+                    sendNotif("Bot joined ##{channel}", "Alert Bot Joined Channel")
+                    p "JOIN ##{channel}"
+                    @joinedChannels << channel
+                end
+                #if the channel is not live and the bot is in the channel
+                if !liveChannels.include?(channel) && @joinedChannels.include?(channel)
+                    sendNotif("Bot left ##{channel}", "Alert Bot Left Channel")
+                    @socket.puts("PART ##{channel}")
+                    p "PART ##{channel}"
+                    @joinedChannels.delete(channel)
+                end
             end
         end
+        sendNotif("Bot stopped checking channels", "Alert")
     end
+rescue Exeption => e
+    sendNotif("Bot stopped checking channels", "Alert")
+    p e
 end
 
 #main loop
