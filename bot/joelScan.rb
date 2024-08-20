@@ -12,10 +12,6 @@
 
 #nickname of the bot
 #@nickname = "something"
-
-#channel to track
-#all lowercase
-#@channels = ["channel1", "channel2", "channel3"]
 # ------------------------------------------end of file-----------------------------------------
 
 
@@ -52,6 +48,8 @@ require_relative "credentials.rb"
 @refreshToken = nil
 #array of joels to search for in the messages
 @joels = ["GoldenJoel" , "Joel2" , "Joeler" , "Joel" , "jol" , "JoelCheck" , "JoelbutmywindowsXPiscrashing" , "JOELLINES", "Joeling", "Joeling", "LetHimJoel", "JoelPride", "WhoLetHimJoel", "Joelest", "EvilJoel", "JUSSY", "JoelJams", "JoelTrain", "BarrelJoel", "JoelWide1", "JoelWide2", "Joeling2"]
+#array of channels to track (lowercase)
+@channels = ["jakecreatesstuff", "venorrak", "lcolonq", "prodzpod", "cr4zyk1tty", "tyumici"]
 #last time refresh was made
 @lastRefresh = AbsoluteTime.now
 
@@ -509,33 +507,6 @@ while @running do
             end
             #if message is 2 words long
             if messageWords.length <= 2
-                #if the first word is !JoelCount to get the count of a user
-                if messageWords[0] == "!JoelCount"
-                    #get the username as the second word
-                    user = messageWords[1] rescue nil
-
-                    #get the user id of the person who sent the message
-                    caller_id = getTwitchUser(message[:source][:user])["data"][0]["id"]
-
-                    #if the user is nil
-                    if user == nil
-                        #show commands
-                        sendWhisper(@me_id, caller_id, "for now the only command is !JoelCount username to get the count of a user")
-                    else
-                        userExits = false
-                        #search the database for the user
-                        @client.query("SELECT count FROM joels WHERE user_id = (SELECT id FROM users WHERE name = '#{user}');").each do |row|
-                            count = row["count"].to_i
-                            userExits = true
-                            #send the count to the user (whisper)
-                            sendWhisper(@me_id, caller_id, "#{user} has said Joel #{count} times")
-                        end
-                        if userExits == false
-                            #if the user is not in the database
-                            sendWhisper(@me_id, caller_id, "#{user} has not said Joel yet")
-                        end
-                    end
-                end
                 #if the server sends a PING message
                 if messageWords[0] == "PING"
                     #send a PONG message back

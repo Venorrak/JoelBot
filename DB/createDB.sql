@@ -1,9 +1,10 @@
-CREATE DATABASE joelScan;
+DROP DATABASE IF EXISTS joelScanTest;
+CREATE DATABASE joelScanTest;
 
-CREATE USER 'bot'@'localhost' IDENTIFIED BY 'joel';
-GRANT ALL ON *.* TO 'bot'@'localhost'
+CREATE USER IF NOT EXISTS 'bot'@'localhost' IDENTIFIED BY 'joel';
+GRANT ALL ON *.* TO 'bot'@'localhost';
 
-USE joelScan;
+USE joelScanTest;
 
 CREATE TABLE IF NOT EXISTS pictures(
     id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
