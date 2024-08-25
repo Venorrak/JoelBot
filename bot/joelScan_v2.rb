@@ -20,13 +20,12 @@ $joinedChannelsSubciptions = []
 $twitch_refresh_token = nil
 $acceptedJoels = ["GoldenJoel" , "Joel2" , "Joeler" , "Joel" , "jol" , "JoelCheck" , "JoelbutmywindowsXPiscrashing" , "JOELLINES", "Joeling", "Joeling", "LetHimJoel", "JoelPride", "WhoLetHimJoel", "Joelest", "EvilJoel", "JUSSY", "JoelJams", "JoelTrain", "BarrelJoel", "JoelWide1", "JoelWide2", "Joeling2"]
 $followedChannels = ["jakecreatesstuff", "venorrak", "lcolonq", "prodzpod", "cr4zyk1tty", "tyumici"]
-$commandChannels = ["venorrak", "prodzpod"]
+$commandChannels = ["venorrak", "prodzpod", "cr4zyk1tty", "jakecreatesstuff", "tyumici", "lcolonq"]
 $last_twitch_refresh = AbsoluteTime.now
 $me_twitch_id = nil
 $twitch_session_id = nil
 
-$sql = Mysql2::Client.new(:host => "localhost", :username => "bot", :password => "joel")
-$sql.query("USE joelScanTest;")
+$sql = Mysql2::Client.new(:host => "localhost", :username => "bot", :password => "joel", :reconnect => true, :database => "joelScan")
 
 $twitch_auth_server = Faraday.new(url: 'https://id.twitch.tv') do |conn|
   conn.request :url_encoded
@@ -323,7 +322,7 @@ def treatCommands(words, receivedData)
       users = $sql.query("SELECT users.name, joels.count FROM users INNER JOIN joels ON users.id = joels.user_id ORDER BY joels.count DESC LIMIT 5;")
       message = ""
       users.each_with_index do |user, index|
-        message += "#{index + 1} - #{user["name"]} with #{user["count"].to_i} | "
+        message += "#{user["name"]} : #{user["count"].to_i} | "
       end
       send_twitch_message(channelId.to_i, message)
     when "!JoelCommands"
@@ -335,7 +334,7 @@ end
 getAccess()
 $me_twitch_id = getTwitchUser("venorrak")["data"][0]["id"]
 if $me_twitch_id.nil?
-  p "error getting my twitch id"
+  puts "error getting my twitch id"
   exit
 end
 
@@ -351,70 +350,91 @@ Thread.start do
   end
 end
 
-EM.run do
-  ws = Faye::WebSocket::Client.new("wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30")
+def startWebsocket(url, isReconnect = false)
+  EM.run do
+    ws = Faye::WebSocket::Client.new(url)
 
-  ws.on :open do |event|
-    #p [:open]
-  end
+    ws.on :open do |event|
+      #p [:open]
+    end
 
-  ws.on :message do |event|
-    begin
-      receivedData = JSON.parse(event.data)
-    rescue
-      p "non json data"
-      return
-    end
-    if receivedData["metadata"]["message_type"] == "session_welcome"
-      $twitch_session_id = receivedData["payload"]["session"]["id"]
-      $followedChannels.each do |channel|
-        channel_id = getTwitchUser(channel)["data"][0]["id"]
-        subscribeToTwitchEventSub($twitch_session_id, {:type => "stream.online", :version => "1"}, channel_id)
-        subscribeToTwitchEventSub($twitch_session_id, {:type => "stream.offline", :version => "1"}, channel_id)
+    ws.on :message do |event|
+      begin
+        receivedData = JSON.parse(event.data)
+      rescue
+        puts "non json data"
+        return
       end
-      getLiveChannels().each do |channel|
-        subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, getTwitchUser(channel)["data"][0]["id"])
-        $joinedChannelsSubciptions << {:channel => channel, :subscription_id => subscribeData["data"][0]["id"]}
-        send_twitch_message(channel, "JoelBot has entered the chat")
-        sendNotif("JoelBot Joined #{channel}", "JoelBot")
-      end
-      #subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, getTwitchUser("venorrak")["data"][0]["id"])
-    end
-    if receivedData["metadata"]["message_type"] == "notification"
-      case receivedData["payload"]["subscription"]["type"]
-      when "stream.online"
-        subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, receivedData["payload"]["event"]["broadcaster_user_id"])
-        $joinedChannelsSubciptions << {:channel => receivedData["payload"]["event"]["broadcaster_user_login"], :subscription_id => subscribeData["data"][0]["id"]}
-        send_twitch_message(receivedData["payload"]["event"]["broadcaster_user_id"].to_i, "JoelBot has entered the chat")
-        sendNotif("JoelBot Joined #{receivedData["payload"]["event"]["broadcaster_user_login"]}", "JoelBot")
-      when "stream.offline"
-        channel = receivedData["payload"]["event"]
-        #find the subscription id for the channel
-        sub = $joinedChannelsSubciptions.find{|sub| sub[:channel] == channel["broadcaster_user_login"]}
-        unsubscribeToTwitchEventSub(sub[:subscription_id])
-        $joinedChannelsSubciptions.delete(sub)
-        send_twitch_message(channel["broadcaster_user_id"].to_i, "JoelBot has left the chat")
-        sendNotif("JoelBot Left #{channel["broadcaster_user_login"]}", "JoelBot")
-      when "channel.chat.message"
-        message = receivedData["payload"]["event"]["message"]["text"]
-        puts "#{receivedData["payload"]["event"]["chatter_user_login"]}: #{message}"
-        words = message.split(" ")
-        treatCommands(words, receivedData)
-        nbJoelInMessage = 0
-        words.each do |word|
-          if $acceptedJoels.include?(word)
-            nbJoelInMessage += 1
+      if receivedData["metadata"]["message_type"] == "session_welcome"
+        $twitch_session_id = receivedData["payload"]["session"]["id"]
+        $followedChannels.each do |channel|
+          channel_id = getTwitchUser(channel)["data"][0]["id"]
+          subscribeToTwitchEventSub($twitch_session_id, {:type => "stream.online", :version => "1"}, channel_id)
+          subscribeToTwitchEventSub($twitch_session_id, {:type => "stream.offline", :version => "1"}, channel_id)
+        end
+        getLiveChannels().each do |channel|
+          subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, getTwitchUser(channel)["data"][0]["id"])
+          $joinedChannelsSubciptions << {:channel => channel, :subscription_id => subscribeData["data"][0]["id"]}
+          if isReconnect == false
+            send_twitch_message(channel, "JoelBot has entered the chat")
+            sendNotif("JoelBot Joined #{channel}", "JoelBot")
           end
         end
-        if nbJoelInMessage > 0
-          joelReceived(receivedData, nbJoelInMessage)
+        #subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, getTwitchUser("venorrak")["data"][0]["id"])
+      end
+      if receivedData["metadata"]["message_type"] == "session_reconnect"
+        ap receivedData
+        p receivedData["payload"]["session"]["reconnect_url"]
+        startWebsocket(receivedData["payload"]["session"]["reconnect_url"], true)
+      end
+      if receivedData["metadata"]["message_type"] == "notification"
+        case receivedData["payload"]["subscription"]["type"]
+        when "stream.online"
+          subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, receivedData["payload"]["event"]["broadcaster_user_id"])
+          $joinedChannelsSubciptions << {:channel => receivedData["payload"]["event"]["broadcaster_user_login"], :subscription_id => subscribeData["data"][0]["id"]}
+          send_twitch_message(receivedData["payload"]["event"]["broadcaster_user_id"].to_i, "JoelBot has entered the chat")
+          sendNotif("JoelBot Joined #{receivedData["payload"]["event"]["broadcaster_user_login"]}", "JoelBot")
+        when "stream.offline"
+          channel = receivedData["payload"]["event"]
+          #find the subscription id for the channel
+          sub = $joinedChannelsSubciptions.find{|sub| sub[:channel] == channel["broadcaster_user_login"]}
+          unsubscribeToTwitchEventSub(sub[:subscription_id])
+          $joinedChannelsSubciptions.delete(sub)
+          send_twitch_message(channel["broadcaster_user_id"].to_i, "JoelBot has left the chat")
+          sendNotif("JoelBot Left #{channel["broadcaster_user_login"]}", "JoelBot")
+        when "channel.chat.message"
+          message = receivedData["payload"]["event"]["message"]["text"]
+          puts "#{receivedData["payload"]["event"]["chatter_user_login"]}: #{message}"
+          words = message.split(" ")
+          treatCommands(words, receivedData)
+          nbJoelInMessage = 0
+          words.each do |word|
+            if $acceptedJoels.include?(word)
+              nbJoelInMessage += 1
+            end
+          end
+          if nbJoelInMessage > 0
+            #if the message is not sent by the bot
+            if receivedData["payload"]["event"]["chatter_user_login"] == "venorrak" && words[0] == "[📺]"
+              print("")
+            else
+              joelReceived(receivedData, nbJoelInMessage)
+            end
+          end
         end
       end
     end
-  end
 
-  ws.on :close do |event|
-    p [:close, event.code, event.reason, "twitch"]
-    sendNotif("JoelBot Disconnected", "JoelBot")
+    ws.on :close do |event|
+      p [:close, event.code, event.reason, "twitch"]
+      if event.code != 1000 && event.code != 1006
+        sendNotif("JoelBot Disconnected : #{event.code} : #{event.reason}", "JoelBot")
+      end
+      if event.code == 1006
+        startWebsocket("wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30", true)
+      end
+    end
   end
 end
+
+startWebsocket("wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30")

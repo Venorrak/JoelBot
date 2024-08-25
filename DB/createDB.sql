@@ -1,10 +1,10 @@
-DROP DATABASE IF EXISTS joelScanTest;
+DROP DATABASE IF EXISTS joelScan;
 CREATE DATABASE joelScanTest;
 
 CREATE USER IF NOT EXISTS 'bot'@'localhost' IDENTIFIED BY 'joel';
 GRANT ALL ON *.* TO 'bot'@'localhost';
 
-USE joelScanTest;
+USE joelScan;
 
 CREATE TABLE IF NOT EXISTS pictures(
     id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
