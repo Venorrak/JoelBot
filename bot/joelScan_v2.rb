@@ -325,6 +325,13 @@ def treatCommands(words, receivedData)
         message += "#{user["name"]} : #{user["count"].to_i} | "
       end
       send_twitch_message(channelId.to_i, message)
+    when "!JoelTopChannel"
+      channels = $sql.query("SELECT channels.name, channelJoels.count FROM channels INNER JOIN channelJoels ON channels.id = channelJoels.channel_id ORDER BY channelJoels.count DESC LIMIT 5;")
+      message = ""
+      channels.each_with_index do |channel, index|
+        message += "#{channel["name"]} : #{channel["count"].to_i} | "
+      end
+      send_twitch_message(channelId.to_i, message)
     when "!JoelCommands"
       send_twitch_message(channelId.to_i, "!JoelCount [username] - !JoelCountChannel [channelname] - !JoelCountStream - get the number of Joels on the current stream - !JoelTop - get the top 5 Joelers")
     end
@@ -383,8 +390,6 @@ def startWebsocket(url, isReconnect = false)
         #subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, getTwitchUser("venorrak")["data"][0]["id"])
       end
       if receivedData["metadata"]["message_type"] == "session_reconnect"
-        ap receivedData
-        p receivedData["payload"]["session"]["reconnect_url"]
         startWebsocket(receivedData["payload"]["session"]["reconnect_url"], true)
       end
       if receivedData["metadata"]["message_type"] == "notification"
@@ -427,7 +432,7 @@ def startWebsocket(url, isReconnect = false)
 
     ws.on :close do |event|
       p [:close, event.code, event.reason, "twitch"]
-      if event.code != 1000 && event.code != 1006
+      if event.code != 1000 && event.code != 1006 && event.code != 4004
         sendNotif("JoelBot Disconnected : #{event.code} : #{event.reason}", "JoelBot")
       end
       if event.code == 1006
