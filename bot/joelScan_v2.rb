@@ -380,13 +380,21 @@ def startWebsocket(url, isReconnect = false)
           subscribeToTwitchEventSub($twitch_session_id, {:type => "stream.offline", :version => "1"}, channel_id)
         end
         getLiveChannels().each do |channel|
-          subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, getTwitchUser(channel)["data"][0]["id"])
-          $joinedChannelsSubciptions << {:channel => channel, :subscription_id => subscribeData["data"][0]["id"]}
+          begin
+            subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, getTwitchUser(channel)["data"][0]["id"])
+            $joinedChannelsSubciptions << {:channel => channel, :subscription_id => subscribeData["data"][0]["id"]}
+          rescue => exception
+            puts exception
+            p subscribeData
+            startWebsocket("wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30", false)
+            raise exception
+          end
           if isReconnect == false
             send_twitch_message(channel, "JoelBot has entered the chat")
             sendNotif("JoelBot Joined #{channel}", "JoelBot")
           end
         end
+        ap $joinedChannelsSubciptions
         #subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, getTwitchUser("venorrak")["data"][0]["id"])
       end
       if receivedData["metadata"]["message_type"] == "session_reconnect"
@@ -397,6 +405,7 @@ def startWebsocket(url, isReconnect = false)
         when "stream.online"
           subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, receivedData["payload"]["event"]["broadcaster_user_id"])
           $joinedChannelsSubciptions << {:channel => receivedData["payload"]["event"]["broadcaster_user_login"], :subscription_id => subscribeData["data"][0]["id"]}
+          ap $joinedChannelsSubciptions
           send_twitch_message(receivedData["payload"]["event"]["broadcaster_user_id"].to_i, "JoelBot has entered the chat")
           sendNotif("JoelBot Joined #{receivedData["payload"]["event"]["broadcaster_user_login"]}", "JoelBot")
         when "stream.offline"
@@ -405,6 +414,7 @@ def startWebsocket(url, isReconnect = false)
           sub = $joinedChannelsSubciptions.find{|sub| sub[:channel] == channel["broadcaster_user_login"]}
           unsubscribeToTwitchEventSub(sub[:subscription_id])
           $joinedChannelsSubciptions.delete(sub)
+          ap $joinedChannelsSubciptions
           send_twitch_message(channel["broadcaster_user_id"].to_i, "JoelBot has left the chat")
           sendNotif("JoelBot Left #{channel["broadcaster_user_login"]}", "JoelBot")
         when "channel.chat.message"
@@ -432,10 +442,11 @@ def startWebsocket(url, isReconnect = false)
 
     ws.on :close do |event|
       p [:close, event.code, event.reason, "twitch"]
+      ap $joinedChannelsSubciptions
       if event.code != 1000 && event.code != 1006 && event.code != 4004
         sendNotif("JoelBot Disconnected : #{event.code} : #{event.reason}", "JoelBot")
       end
-      if event.code == 1006
+      if event.code != 1000
         startWebsocket("wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30", true)
       end
     end
