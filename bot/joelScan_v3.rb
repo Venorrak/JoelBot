@@ -167,7 +167,6 @@ def getLiveChannels()
           liveChannels = []
       end
   end
-  p liveChannels
   return liveChannels
 end
 
@@ -302,8 +301,8 @@ def treatCommands(words, receivedData)
   channelId = receivedData["payload"]["event"]["broadcaster_user_id"]
   broadcastName = receivedData["payload"]["event"]["broadcaster_user_login"]
   if $commandChannels.include?(broadcastName)
-    case words[0]
-    when "!JoelCount"
+    case words[0].downcase
+    when "!joelcount"
       if words[1] != "" && words[1] != nil
         username = words[1]
         if $sql.query("SELECT * FROM users WHERE name = '#{username.downcase}';").count > 0
@@ -320,7 +319,7 @@ def treatCommands(words, receivedData)
           send_twitch_message(channelId.to_i, "#{chatterName} didn't Joel yet")
         end
       end
-    when "!JoelCountChannel"
+    when "!joelcountchannel"
       if words[1] != "" && words[1] != nil
         channelName = words[1]
         if $sql.query("SELECT * FROM channels WHERE name = '#{channelName.downcase}';").count > 0
@@ -337,28 +336,28 @@ def treatCommands(words, receivedData)
           send_twitch_message(channelId.to_i, "no Joel on this channel yet")
         end
       end
-    when "!JoelCountStream"
+    when "!joelcountstream"
       if $sql.query("SELECT * FROM streamJoels WHERE channel_id = (SELECT id FROM channels WHERE name = '#{broadcastName.downcase}') AND streamDate = '#{DateTime.now.strftime("%Y-%m-%d")}';").count > 0
         count = $sql.query("SELECT count FROM streamJoels WHERE channel_id = (SELECT id FROM channels WHERE name = '#{broadcastName.downcase}') AND streamDate = '#{DateTime.now.strftime("%Y-%m-%d")}';").first["count"].to_i
         send_twitch_message(channelId.to_i, "Joel count on this stream is #{count}")
       else
         send_twitch_message(channelId.to_i, "no Joel today yet")
       end
-    when "!JoelTop"
+    when "!joeltop"
       users = $sql.query("SELECT users.name, joels.count FROM users INNER JOIN joels ON users.id = joels.user_id ORDER BY joels.count DESC LIMIT 5;")
       message = ""
       users.each_with_index do |user, index|
         message += "#{user["name"]} : #{user["count"].to_i} | "
       end
       send_twitch_message(channelId.to_i, message)
-    when "!JoelTopChannel"
+    when "!joeltopchannel"
       channels = $sql.query("SELECT channels.name, channelJoels.count FROM channels INNER JOIN channelJoels ON channels.id = channelJoels.channel_id ORDER BY channelJoels.count DESC LIMIT 5;")
       message = ""
       channels.each_with_index do |channel, index|
         message += "#{channel["name"]} : #{channel["count"].to_i} | "
       end
       send_twitch_message(channelId.to_i, message)
-    when "!JoelCommands"
+    when "!joelcommands"
       send_twitch_message(channelId.to_i, "!JoelCount [username] - !JoelCountChannel [channelname] - !JoelCountStream - get the number of Joels on the current stream - !JoelTop - get the top 5 Joelers")
     end
   end
@@ -401,6 +400,7 @@ def startWebsocket(url, isReconnect = false)
       end
       if receivedData["metadata"]["message_type"] == "session_welcome"
         $twitch_session_id = receivedData["payload"]["session"]["id"]
+        #subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.notification", :version => "1"}, getTwitchUser("venorrak")["data"][0]["id"])
         getLiveChannels().each do |channel|
           begin
             subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, getTwitchUser(channel)["data"][0]["id"])
