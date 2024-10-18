@@ -15,6 +15,8 @@ require 'faraday'
 require 'mysql2'
 require_relative "credentials.rb"
 
+$online = false
+
 $twitch_token = nil
 $joinedChannels = []
 $twitch_refresh_token = nil
@@ -176,22 +178,36 @@ def updateTrackedChannels()
   rescue
     sendNotif("Bot stopped checking channels", "Alert")
   end
-  $followedChannels.each do |channel|
-    #if the channel is live and the bot is not in the channel
+  if liveChannels.count > 0 && $online == false
+    $online = true
+    startWebsocket("wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30")
+  else
     joinedChannelsName = $joinedChannels.map { |channel| channel[:channel] }
-    if liveChannels.include?(channel) && !joinedChannelsName.include?(channel)
-      subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, getTwitchUser(channel)["data"][0]["id"])
-      $joinedChannels << {:channel => channel, :subscription_id => subscribeData["data"][0]["id"]}
-      send_twitch_message(channel, "JoelBot has entered the chat")
-      sendNotif("Bot joined #{channel}", "Alert Bot Joined Channel")
-    end
-    #if the channel is not live and the bot is in the channel
-    if !liveChannels.include?(channel) && joinedChannelsName.include?(channel)
-      leavingChannel = $joinedChannels.find { |channelData| channelData[:channel] == channel }
-      unsubscribeToTwitchEventSub(leavingChannel[:subscription_id])
-      $joinedChannels.delete(leavingChannel)
-      send_twitch_message(channel, "JoelBot has left the chat")
-      sendNotif("Bot left #{channel}", "Alert Bot Left Channel")
+    #if there is multiple subscriptions to the same channel, keep only the last one based on the subscription time
+    $joinedChannels = $joinedChannels.group_by { |channel| channel[:channel] }.map { |k, v| v.max_by { |channel| channel[:subscription_time] } }    
+
+    $followedChannels.each do |channel|
+      #if the channel is live and the bot is not in the channel
+      if liveChannels.include?(channel) && !joinedChannelsName.include?(channel)
+        begin
+          subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, getTwitchUser(channel)["data"][0]["id"])
+          $joinedChannels << {:channel => channel, :subscription_id => subscribeData["data"][0]["id"], :subscription_time => AbsoluteTime.now}
+          send_twitch_message(channel, "JoelBot has entered the chat")
+          sendNotif("Bot joined #{channel}", "Alert Bot Joined Channel")
+        rescue => exception
+          puts exception
+          p subscribeData
+          p $joinedChannels
+        end
+      end
+      #if the channel is not live and the bot is in the channel
+      if !liveChannels.include?(channel) && joinedChannelsName.include?(channel)
+        leavingChannel = $joinedChannels.find { |channelData| channelData[:channel] == channel }
+        unsubscribeToTwitchEventSub(leavingChannel[:subscription_id])
+        $joinedChannels.delete(leavingChannel)
+        send_twitch_message(channel, "JoelBot has left the chat")
+        sendNotif("Bot left #{channel}", "Alert Bot Left Channel")
+      end
     end
   end
 end
@@ -358,7 +374,7 @@ def treatCommands(words, receivedData)
       end
       send_twitch_message(channelId.to_i, message)
     when "!joelcommands"
-      send_twitch_message(channelId.to_i, "!JoelCount [username] - !JoelCountChannel [channelname] - !JoelCountStream - get the number of Joels on the current stream - !JoelTop - get the top 5 Joelers")
+      send_twitch_message(channelId.to_i, "!JoelCount [username] - !JoelCountChannel [channelname] - !JoelCountStream - get the number of Joels on the current stream - !JoelTop - get the top 5 Joelers - !JoelTopChannel - get the top 5 channels with the most Joels")
     end
   end
 end
@@ -398,30 +414,41 @@ def startWebsocket(url, isReconnect = false)
         puts "non json data"
         return
       end
+
       if receivedData["metadata"]["message_type"] == "session_welcome"
         $twitch_session_id = receivedData["payload"]["session"]["id"]
-        #subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.notification", :version => "1"}, getTwitchUser("venorrak")["data"][0]["id"])
-        getLiveChannels().each do |channel|
-          begin
-            subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, getTwitchUser(channel)["data"][0]["id"])
-            $joinedChannels << {:channel => channel, :subscription_id => subscribeData["data"][0]["id"]}
-          rescue => exception
-            puts exception
-            p subscribeData
-            startWebsocket("wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30", false)
-            raise exception
+        liveChannels = getLiveChannels() rescue []
+        joinedChannelsName = $joinedChannels.map { |channel| channel[:channel] }
+        $followedChannels.each do |channel|
+          #if the channel is live and the bot is not in the channel
+
+          if joinedChannelsName.include?(channel)
+            leavingChannel = $joinedChannels.find { |channelData| channelData[:channel] == channel }
+            unsubscribeToTwitchEventSub(leavingChannel[:subscription_id])
+            $joinedChannels.delete(leavingChannel)
           end
-          if isReconnect == false
-            send_twitch_message(channel, "JoelBot has entered the chat")
-            sendNotif("JoelBot Joined #{channel}", "JoelBot")
+
+          if liveChannels.include?(channel) && !joinedChannelsName.include?(channel)
+            begin
+              subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, getTwitchUser(channel)["data"][0]["id"])
+              $joinedChannels << {:channel => channel, :subscription_id => subscribeData["data"][0]["id"], :subscription_time => AbsoluteTime.now}
+              if isReconnect == false
+                send_twitch_message(channel, "JoelBot has entered the chat, !JoelCommands for commands")
+                sendNotif("Bot joined #{channel}", "Alert Bot Joined Channel")
+              end
+            rescue => exception
+              puts exception
+              p subscribeData
+              p $joinedChannels
+            end
           end
         end
-        ap $joinedChannelsSubciptions
-        #subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, getTwitchUser("venorrak")["data"][0]["id"])
       end
+
       if receivedData["metadata"]["message_type"] == "session_reconnect"
         startWebsocket(receivedData["payload"]["session"]["reconnect_url"], true)
       end
+
       if receivedData["metadata"]["message_type"] == "notification"
         case receivedData["payload"]["subscription"]["type"]
         when "channel.chat.message"
@@ -448,16 +475,27 @@ def startWebsocket(url, isReconnect = false)
     end
 
     ws.on :close do |event|
-      p [:close, event.code, event.reason, "twitch"]
-      ap $joinedChannelsSubciptions
-      if event.code != 1000 && event.code != 1006 && event.code != 4004
-        sendNotif("JoelBot Disconnected : #{event.code} : #{event.reason}", "JoelBot")
-      end
+      p [Time.now().to_s.split(" ")[1], :close, event.code, event.reason, "twitch"]
       if event.code != 1000
-        startWebsocket("wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30", true)
+        #sendNotif("JoelBot Disconnected : #{event.code} : #{event.reason}", "JoelBot")
+        if getLiveChannels().count > 0
+          startWebsocket("wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30", true)
+          $online = true
+        else
+          $online = false
+        end
       end
     end
   end
 end
 
-startWebsocket("wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30")
+if getLiveChannels().count > 0
+  $online = true
+  startWebsocket("wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30")
+end
+
+#keep the bot running until the user types exit
+input = ""
+until input == "exit"
+  input = gets.chomp
+end
