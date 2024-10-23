@@ -310,6 +310,13 @@ def joelReceived(receivedData, nbJoel)
   else
     $sql.query("INSERT INTO streamJoels VALUES (DEFAULT, (SELECT id FROM channels WHERE name = '#{channelName}'), #{nbJoel}, '#{DateTime.now.strftime("%Y-%m-%d")}');")
   end
+
+  #check if the User Joel stream is in the database
+  if $sql.query("SELECT streamUsersJoels.user_id, streamUsersJoels.stream_id, channels.name, users.name FROM streamUsersJoels INNER JOIN streamJoels ON streamJoels.id = streamUsersJoels.stream_id INNER JOIN channels ON channels.id = streamJoels.channel_id INNER JOIN users ON users.id = streamUsersJoels.user_id WHERE channels.name = '#{channelName}' AND users.name = '#{userName}' AND streamJoels.streamDate = '#{DateTime.now.strftime("%Y-%m-%d")}';").count > 0
+    $sql.query("UPDATE streamUsersJoels SET count = count + #{nbJoel} WHERE user_id = (SELECT id FROM users WHERE name = '#{userName}') AND stream_id = (SELECT id FROM streamJoels WHERE channel_id = (SELECT id FROM channels WHERE name = '#{channelName}') AND streamDate = '#{DateTime.now.strftime("%Y-%m-%d")}');")
+  else
+    $sql.query("INSERT INTO streamUsersJoels VALUES (DEFAULT, (SELECT id FROM streamJoels WHERE channel_id = (SELECT id FROM channels WHERE name = '#{channelName}') AND streamDate = '#{DateTime.now.strftime("%Y-%m-%d")}'), (SELECT id FROM users WHERE name = '#{userName}'), #{nbJoel});")
+  end
 end
 
 def treatCommands(words, receivedData)
