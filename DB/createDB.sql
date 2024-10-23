@@ -50,3 +50,12 @@ CREATE TABLE IF NOT EXISTS streamJoels (
     streamDate DATE NOT NULL,
     FOREIGN KEY (channel_id) REFERENCES channels(id)
 );
+
+CREATE TABLE IF NOT EXISTS streamUsersJoels (
+    id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
+    stream_id INT NOT NULL,
+    user_id INT NOT NULL,
+    count INT NOT NULL,
+    FOREIGN KEY (stream_id) REFERENCES streamJoels(id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
