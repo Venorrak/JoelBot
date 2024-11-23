@@ -1,5 +1,5 @@
 DROP DATABASE IF EXISTS joelScan;
-CREATE DATABASE joelScanTest;
+CREATE DATABASE joelScan;
 
 CREATE USER IF NOT EXISTS 'bot'@'localhost' IDENTIFIED BY 'joel';
 GRANT ALL ON *.* TO 'bot'@'localhost';
