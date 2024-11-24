@@ -269,10 +269,10 @@ def updateJCPDB()
   lastLongJCP = $sql.query("SELECT * FROM JCPlong ORDER BY timestamp DESC LIMIT 1;").first
   lastShortJCP = $sql.query("SELECT * FROM JCPshort ORDER BY timestamp DESC LIMIT 1;").first
 
-  if Time.now - lastLongJCP["timestamp"] > 3600
+  if Time.now - lastLongJCP["timestamp"] > 60
     $sql.query("INSERT INTO JCPlong VALUES (DEFAULT, #{$JCP}, '#{Time.now.strftime('%Y-%m-%d %H:%M:%S')}');")
   end
-  if Time.now - lastShortJCP["timestamp"] > 5
+  if Time.now - lastShortJCP["timestamp"] > 15
     $sql.query("INSERT INTO JCPshort VALUES (DEFAULT, #{$JCP}, '#{Time.now.strftime('%Y-%m-%d %H:%M:%S')}');")
   end
 
