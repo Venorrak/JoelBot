@@ -5,6 +5,7 @@ require 'absolute_time'
 require "awesome_print"
 require 'faye/websocket'
 require 'irb'
+require 'time'
 
 gemfile do
   source "https://rubygems.org"
@@ -255,6 +256,28 @@ def updateJCP()
   else
     $JCP = 100 * (1 - (allTimesSinceLastJoel.max - allTimesSinceLastJoel.min) / allTimesSinceLastJoel.max)
   end
+end
+
+def updateJCPDB()
+  if $sql.query("SELECT * FROM JCPlong;").count == 0
+    $sql.query("INSERT INTO JCPlong VALUES (DEFAULT, #{$JCP}, '#{Time.now.strftime('%Y-%m-%d %H:%M:%S')}');")
+  end
+  if $sql.query("SELECT * FROM JCPshort").count == 0
+    $sql.query("INSERT INTO JCPshort VALUES (DEFAULT, #{$JCP}, '#{Time.now.strftime('%Y-%m-%d %H:%M:%S')}');")
+  end
+
+  lastLongJCP = $sql.query("SELECT * FROM JCPlong ORDER BY timestamp DESC LIMIT 1;").first
+  lastShortJCP = $sql.query("SELECT * FROM JCPshort ORDER BY timestamp DESC LIMIT 1;").first
+
+  if Time.now - lastLongJCP["timestamp"] > 3600
+    $sql.query("INSERT INTO JCPlong VALUES (DEFAULT, #{$JCP}, '#{Time.now.strftime('%Y-%m-%d %H:%M:%S')}');")
+  end
+  if Time.now - lastShortJCP["timestamp"] > 5
+    $sql.query("INSERT INTO JCPshort VALUES (DEFAULT, #{$JCP}, '#{Time.now.strftime('%Y-%m-%d %H:%M:%S')}');")
+  end
+
+  # delete old data in JCPshort where the timestamp is older than 24 hours
+  $sql.query("DELETE FROM JCPshort WHERE timestamp < '#{(Time.now - 86400).strftime('%Y-%m-%d %H:%M:%S')}';")
 end
 
 def createEmptyDataForLastJoel()
@@ -522,6 +545,7 @@ Thread.start do
       sleep(1)
       now = AbsoluteTime.now
       updateJCP()
+      updateJCPDB()
       if now - $twoMinWait > 120
         $sql.query("SELECT 1;")
         updateTrackedChannels()
@@ -535,7 +559,7 @@ Thread.start do
     rescue => exception
       puts exception
       sendNotif("Bot stopped checking channels", "Alert")
-      binding.irb
+      break
     end
   end
 end

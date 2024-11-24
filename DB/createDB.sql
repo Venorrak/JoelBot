@@ -59,3 +59,15 @@ CREATE TABLE IF NOT EXISTS streamUsersJoels (
     FOREIGN KEY (stream_id) REFERENCES streamJoels(id),
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
+
+CREATE TABLE IF NOT EXISTS JCPshort (
+    id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
+    percentage DOUBLE NOT NULL,
+    timestamp DATETIME NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS JCPlong (
+    id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
+    percentage DOUBLE NOT NULL,
+    timestamp DATETIME NOT NULL
+);
