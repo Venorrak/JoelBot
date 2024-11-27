@@ -229,33 +229,60 @@ def updateJCP()
   now = Time.new()
   uptime = (now - $initiationDateTime) / 60
   joinedChannelsName = $joinedChannels.map { |channel| channel[:channel] }
+
+  # get all the times since the last joel for each channel (online and offline)
+  # get all the average joel per minute for each channel (online and offline)
   allTimesSinceLastJoel = []
+  allAverageJoelPerMinute = []
   $followedChannels.each do |channel|
     if joinedChannelsName.include?(channel)
       timeSinceLastJoel = (now - $lastJoelPerStream.find { |channelData| channelData[:channel] == channel }[:lastJoel]) / 60#minutes
+      joelPerMinute = $sql.query("SELECT count FROM streamJoels WHERE channel_id = (SELECT id FROM channels WHERE name = '#{channel}') ORDER BY streamDate DESC LIMIT 1;").first["count"].to_f / ((Time.now() - $joinedChannels.find {|joinedChannel| joinedChannel[:channel] == channel}[:subscription_time]) / 60.0) rescue 0.0 # Joels per minute
     else
       joelPerMinute = $lastStreamJCP.find { |channelData| channelData[:channel] == channel }[:JCP] # Joels per minute
       minutePerJoel = 1.0 / joelPerMinute rescue 0 # Minutes per Joel
-      # what is the time since last Joel if Joel is said every JoelPerMinute minutes since uptime
       if minutePerJoel != 0 && minutePerJoel != Float::INFINITY
         timeSinceLastJoel = uptime % minutePerJoel
       else
         timeSinceLastJoel = 0
       end
+      
     end
+    # p channel + " : " + timeSinceLastJoel.to_s + " / " + joelPerMinute.to_s
+
     if timeSinceLastJoel != 0
       allTimesSinceLastJoel << timeSinceLastJoel
     end
+    if joelPerMinute > 0 && joelPerMinute != Float::INFINITY
+      allAverageJoelPerMinute << joelPerMinute
+    end
   end
-
+  
+  
+  # average between $JCP calculated with tileSinceLastJoel and $JCP calculated with joel per minute (last stream & current stream)
   # if all the the timeSinceLastJoel are equal -> JCP = 100%
-  # if all the the timeSinceLastJoel are different -> JCP = 0%
   # if the timeSinceLastJoel are different -> JCP = 100 * (1 - (max - min) / max)
-  if allTimesSinceLastJoel.uniq.count == 1
-    $JCP = 100
-  else
-    $JCP = 100 * (1 - (allTimesSinceLastJoel.max - allTimesSinceLastJoel.min) / allTimesSinceLastJoel.max)
+  lastTimeJCP = 100 * (1 - (allTimesSinceLastJoel.max - allTimesSinceLastJoel.min) / allTimesSinceLastJoel.max)
+  averageJCP = 100 * (1 - (allAverageJoelPerMinute.max - allAverageJoelPerMinute.min) / allAverageJoelPerMinute.max)
+
+  $JCP = (lastTimeJCP + averageJCP) / 2
+
+  # printJCPStatus()
+end
+
+def printJCPStatus()
+  puts ""
+  puts "JCP : #{$JCP.round(2)}%"
+  barString = "["
+  $JCP.to_i.times do
+    barString += "="
   end
+  (100 - $JCP).to_i.times do
+    barString += " "
+  end
+  barString += "]"
+  puts barString
+  puts ""
 end
 
 def updateJCPDB()
@@ -305,7 +332,7 @@ def updateTrackedChannels()
       if liveChannels.include?(channel) && !joinedChannelsName.include?(channel)
         begin
           subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, getTwitchUser(channel)["data"][0]["id"])
-          $joinedChannels << {:channel => channel, :subscription_id => subscribeData["data"][0]["id"], :subscription_time => AbsoluteTime.now}
+          $joinedChannels << {:channel => channel, :subscription_id => subscribeData["data"][0]["id"], :subscription_time => Time.now}
           send_twitch_message(channel, "JoelBot has entered the chat")
           sendNotif("Bot joined #{channel}", "Alert Bot Joined Channel")
         rescue => exception
@@ -596,7 +623,7 @@ def startWebsocket(url, isReconnect = false)
           if liveChannels.include?(channel) && !joinedChannelsName.include?(channel)
             begin
               subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, getTwitchUser(channel)["data"][0]["id"])
-              $joinedChannels << {:channel => channel, :subscription_id => subscribeData["data"][0]["id"], :subscription_time => AbsoluteTime.now}
+              $joinedChannels << {:channel => channel, :subscription_id => subscribeData["data"][0]["id"], :subscription_time => Time.now}
               if isReconnect == false
                 send_twitch_message(channel, "JoelBot has entered the chat, !JoelCommands for commands")
                 sendNotif("Bot joined #{channel}", "Alert Bot Joined Channel")
