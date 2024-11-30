@@ -4,12 +4,16 @@
 ![Joel](Images/Joel.gif)
 <hr>
 
-#### This bot has 3 iterations
+# JoelBot API
+
+The documentation for the Joel API can be found on my [website's repository](https://github.com/Venorrak/WebPage) README
+
+There is also a way to visually see the data on my [website](https://server.venorrak.dev/)
+
+# Iterations
 - joelScan.rb uses an IRC connection to communicate with twitch servers and does not have commands. WARNING, if you choose to use this version be aware that it's not being updated and lacks many feature of recent versions
 - joelScan_v2.rb uses the twitch EventSub solution to communicate with servers, uses events to know when a channel goes live ([this limits the number of tracked channels to 3](https://dev.twitch.tv/docs/eventsub/manage-subscriptions/#subscription-limits))
 - joelScan_v3.rb is the same as v2 but goes back to using polling to know when a channel goes live or offline
-
-
 
 # How to start the bot on your machine
 First you need to clone this repository on your local machine.
