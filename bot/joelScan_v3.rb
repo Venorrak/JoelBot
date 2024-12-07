@@ -16,27 +16,31 @@ end
 require 'faraday'
 require 'mysql2'
 require_relative "credentials.rb"
+require_relative "colorString.rb"
 
 $online = false
 
 $twitch_token = nil
 $joinedChannels = []
-$twitch_refresh_token = nil
 $acceptedJoels = ["GoldenJoel" , "Joel2" , "Joeler" , "Joel" , "jol" , "JoelCheck" , "JoelbutmywindowsXPiscrashing" , "JOELLINES", "Joeling", "Joeling", "LetHimJoel", "JoelPride", "WhoLetHimJoel", "Joelest", "EvilJoel", "JUSSY", "JoelJams", "JoelTrain", "BarrelJoel", "JoelWide1", "JoelWide2", "Joeling2"]
 $followedChannels = ["jakecreatesstuff", "venorrak", "lcolonq", "prodzpod", "cr4zyk1tty", "tyumici", "colinahscopy_"]
 $lastJoelPerStream = []
 $lastStreamJCP = []
 $commandChannels = ["venorrak", "prodzpod", "cr4zyk1tty", "jakecreatesstuff", "tyumici", "lcolonq", "colinahscopy_"]
-$last_twitch_refresh = AbsoluteTime.now
 $twoMinWait = AbsoluteTime.now
 $initiationDateTime = Time.new()
 $me_twitch_id = nil
 $twitch_session_id = nil
 $JCP = 0
+$bus = nil
 
 $sql = Mysql2::Client.new(:host => "localhost", :username => "bot", :password => "joel", :reconnect => true, :database => "joelScan")
 
-$twitch_auth_server = Faraday.new(url: 'https://id.twitch.tv') do |conn|
+$TokenService = Faraday.new(url: 'http://localhost:5002') do |conn|
+  conn.request :url_encoded
+end
+
+$SQLService = Faraday.new(url: 'http://localhost:5001') do |conn|
   conn.request :url_encoded
 end
 
@@ -51,49 +55,15 @@ end
 
 
 #function to get the access token for API 
-def getAccess()
-  oauthToken = nil
-  #https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/#device-code-grant-flow
-  response = $twitch_auth_server.post("/oauth2/device") do |req|
-      req.headers["Content-Type"] = "application/x-www-form-urlencoded"
-      req.body = "client_id=#{@client_id}&scopes=user:write:chat+user:read:chat"
-  end
-  rep = JSON.parse(response.body)
-  device_code = rep["device_code"]
-
-  # wait for user to authorize the app
-  puts "Please go to #{rep["verification_uri"]} and enter the code #{rep["user_code"]}"
-  puts "Press enter when you have authorized the app"
-  wait = gets.chomp
-
-  #https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/#authorization-code-grant-flow
-  response = $twitch_auth_server.post("/oauth2/token") do |req|
-      req.body = "client_id=#{@client_id}&scopes=user:write:chat,user:read:chat,channel:manage:broadcast,user:manage:whispers&device_code=#{device_code}&grant_type=urn:ietf:params:oauth:grant-type:device_code"
-  end
-  rep = JSON.parse(response.body)
-  $twitch_token = rep["access_token"]
-  $twitch_refresh_token = rep["refresh_token"]
-end
-
-def refreshTwitchAccess()
-  #https://dev.twitch.tv/docs/authentication/refresh-tokens/#how-to-use-a-refresh-token
-  response = $twitch_auth_server.post("/oauth2/token") do |req|
-    req.headers["Content-Type"] = "application/x-www-form-urlencoded"
-    req.body = "grant_type=refresh_token&refresh_token=#{$twitch_refresh_token}&client_id=#{@client_id}&client_secret=#{@clientSecret}"
-  end
+def getTwitchToken()
   begin
+    response = $TokenService.get("/token/twitch") do |req|
+      req.headers["Authorization"] = $twitch_safety_string
+    end
     rep = JSON.parse(response.body)
+    $twitch_token = rep["token"]
   rescue
-    sendNotif("Error refreshing twitch token", "Alert")
-    p response.body
-    return
-  end
-  if !rep["access_token"].nil? && !rep["refresh_token"].nil?
-    $twitch_token = rep["access_token"]
-    $twitch_refresh_token = rep["refresh_token"]
-  else
-    p "error refreshing twitch token"
-    p rep
+    puts "Token Service is down"
   end
 end
 
@@ -166,17 +136,24 @@ def getLiveChannels()
           req.headers["Client-Id"] = @client_id
       end
       begin
-          rep = JSON.parse(response.body)
-          if rep.nil? || rep["data"].nil?
-            return response.body
+        if response.status == 401
+          getTwitchToken()
+          return response.body
+        end
+
+        rep = JSON.parse(response.body)
+
+        if rep.nil? || rep["data"].nil?
+          return response.body
+        end
+        rep["data"].each do |stream|
+          if stream["type"] == "live"
+            liveChannels << "#{stream["user_login"]}"
           end
-          rep["data"].each do |stream|
-              if stream["type"] == "live"
-                  liveChannels << "#{stream["user_login"]}"
-              end
-          end
+        end
       rescue => exception
         puts exception
+        getTwitchToken()
         #if the response is not json or doesn't contain the data key
         return response.body
       end
@@ -195,8 +172,14 @@ def getLastStreamJCP(channelName)
     req.headers["Client-Id"] = @client_id
   end
   begin
+    if response.status == 401
+      getTwitchToken()
+      return nil
+    end
+
     rep = JSON.parse(response.body)
   rescue
+    getTwitchToken()
     return nil
   end
   if rep["data"].count == 0
@@ -210,7 +193,7 @@ def getLastStreamJCP(channelName)
   minutes = videoDuration.split("m")[0].to_f
   seconds = videoDuration.split("m")[1].to_f
   totalMinutes = (minutes * 60 + seconds) / 60
-  totalJoelCountLastStream = $sql.query("SELECT count FROM streamJoels WHERE channel_id = (SELECT id FROM channels WHERE name = '#{channelName}') ORDER BY streamDate DESC LIMIT 1;").first["count"].to_i rescue 0
+  totalJoelCountLastStream = sendQuery("GetTotalJoelCountLastStream", [channelName])["count"].to_i rescue 0
   return totalJoelCountLastStream / totalMinutes rescue 0
 end
 
@@ -237,7 +220,11 @@ def updateJCP()
   $followedChannels.each do |channel|
     if joinedChannelsName.include?(channel)
       timeSinceLastJoel = (now - $lastJoelPerStream.find { |channelData| channelData[:channel] == channel }[:lastJoel]) / 60#minutes
-      joelPerMinute = $sql.query("SELECT count FROM streamJoels WHERE channel_id = (SELECT id FROM channels WHERE name = '#{channel}') ORDER BY streamDate DESC LIMIT 1;").first["count"].to_f / ((Time.now() - $joinedChannels.find {|joinedChannel| joinedChannel[:channel] == channel}[:subscription_time]) / 60.0) rescue 0.0 # Joels per minute
+      p timeSinceLastJoel
+      totalJoelCountLastStream = sendQuery("GetTotalJoelCountLastStream", [channel])["count"].to_f rescue 0.0
+      p totalJoelCountLastStream
+      joelPerMinute = totalJoelCountLastStream / ((Time.now() - $joinedChannels.find {|joinedChannel| joinedChannel[:channel] == channel}[:subscription_time]) / 60.0) rescue 0.0 # Joels per minute
+      p joelPerMinute
     else
       joelPerMinute = $lastStreamJCP.find { |channelData| channelData[:channel] == channel }[:JCP] # Joels per minute
       minutePerJoel = 1.0 / joelPerMinute rescue 0 # Minutes per Joel
@@ -259,20 +246,22 @@ def updateJCP()
   end
   
   
-  # average between $JCP calculated with tileSinceLastJoel and $JCP calculated with joel per minute (last stream & current stream)
+  # average between $JCP calculated with timeSinceLastJoel and $JCP calculated with joel per minute (last stream & current stream)
   # if all the the timeSinceLastJoel are equal -> JCP = 100%
   # if the timeSinceLastJoel are different -> JCP = 100 * (1 - (max - min) / max)
-  lastTimeJCP = 100 * (1 - (allTimesSinceLastJoel.max - allTimesSinceLastJoel.min) / allTimesSinceLastJoel.max)
-  averageJCP = 100 * (1 - (allAverageJoelPerMinute.max - allAverageJoelPerMinute.min) / allAverageJoelPerMinute.max)
+  if !allTimesSinceLastJoel.empty? && !allAverageJoelPerMinute.empty?
+    lastTimeJCP = 100 * (1 - (allTimesSinceLastJoel.max - allTimesSinceLastJoel.min) / allTimesSinceLastJoel.max)
+    averageJCP = 100 * (1 - (allAverageJoelPerMinute.max - allAverageJoelPerMinute.min) / allAverageJoelPerMinute.max)
 
-  $JCP = (lastTimeJCP + averageJCP) / 2
+    $JCP = (lastTimeJCP + averageJCP) / 2
+  end
 
   # printJCPStatus()
 end
 
 def printJCPStatus()
   puts ""
-  puts "JCP : #{$JCP.round(2)}%"
+  puts "JCP : #{$JCP.round(2)}%".blue
   barString = "["
   $JCP.to_i.times do
     barString += "="
@@ -286,25 +275,25 @@ def printJCPStatus()
 end
 
 def updateJCPDB()
-  if $sql.query("SELECT * FROM JCPlong;").count == 0
-    $sql.query("INSERT INTO JCPlong VALUES (DEFAULT, #{$JCP}, '#{Time.now.strftime('%Y-%m-%d %H:%M:%S')}');")
+  if sendQuery("GetJCPlongAll", []).count == 0
+    sendQuery("NewJCPLong", [$JCP, Time.now.strftime('%Y-%m-%d %H:%M:%S')])
   end
-  if $sql.query("SELECT * FROM JCPshort").count == 0
-    $sql.query("INSERT INTO JCPshort VALUES (DEFAULT, #{$JCP}, '#{Time.now.strftime('%Y-%m-%d %H:%M:%S')}');")
+  if sendQuery("GetJCPshortAll", []).count == 0
+    sendQuery("NewJCPShort", [$JCP, Time.now.strftime('%Y-%m-%d %H:%M:%S')])
   end
 
-  lastLongJCP = $sql.query("SELECT * FROM JCPlong ORDER BY timestamp DESC LIMIT 1;").first
-  lastShortJCP = $sql.query("SELECT * FROM JCPshort ORDER BY timestamp DESC LIMIT 1;").first
+  lastLongJCP = sendQuery("GetLastLongJCP", [])
+  lastShortJCP = sendQuery("GetLastShortJCP", [])
 
-  if Time.now - lastLongJCP["timestamp"] > 60
-    $sql.query("INSERT INTO JCPlong VALUES (DEFAULT, #{$JCP}, '#{Time.now.strftime('%Y-%m-%d %H:%M:%S')}');")
+  if Time.now - Time.parse(lastLongJCP["timestamp"]) > 60
+    sendQuery("NewJCPlong", [$JCP, Time.now.strftime('%Y-%m-%d %H:%M:%S')])
   end
-  if Time.now - lastShortJCP["timestamp"] > 15
-    $sql.query("INSERT INTO JCPshort VALUES (DEFAULT, #{$JCP}, '#{Time.now.strftime('%Y-%m-%d %H:%M:%S')}');")
+  if Time.now - Time.parse(lastShortJCP["timestamp"]) > 15
+    sendQuery("NewJCPshort", [$JCP, Time.now.strftime('%Y-%m-%d %H:%M:%S')])
   end
 
   # delete old data in JCPshort where the timestamp is older than 24 hours
-  $sql.query("DELETE FROM JCPshort WHERE timestamp < '#{(Time.now - 86400).strftime('%Y-%m-%d %H:%M:%S')}';")
+  sendQuery("DeleteOldShortJCP", [(Time.now - 86400).strftime('%Y-%m-%d %H:%M:%S')])
 end
 
 def createEmptyDataForLastJoel()
@@ -317,6 +306,7 @@ def updateTrackedChannels()
   begin
     liveChannels = getLiveChannels()
   rescue
+    liveChannels = []
     sendNotif("Bot stopped checking channels", "Alert")
   end
   if liveChannels.count > 0 && $online == false
@@ -360,9 +350,15 @@ def getTwitchUser(name)
       req.headers["Client-Id"] = @client_id
   end
   begin
-      rep = JSON.parse(response.body)
+    if response.status == 401
+      getTwitchToken()
+      return nil
+    end
+
+    rep = JSON.parse(response.body)
   rescue
-      rep = {}
+    rep = nil
+    getTwitchToken()
   end
   return rep
 end
@@ -385,45 +381,41 @@ def createUserDB(name, userData, startJoels)
   user_id = 0
   pfp_id = 0
   bgp_id = 0
-
+  if userData.nil?
+    return
+  end
   userData["data"].each do |user|
       twitch_id = user["id"]
       pfp = user["profile_image_url"]
       bgp = user["offline_image_url"]
   end
-  $sql.query("INSERT INTO pictures VALUES (DEFAULT, '#{pfp}', 'pfp');")
-  $sql.query("INSERT INTO pictures VALUES (DEFAULT, '#{bgp}', 'bgp');")
+
+  sendQuery("NewPfp", [pfp])
+  sendQuery("NewBgp", [bgp])
   
-  pfp_id = $sql.query("SELECT id FROM pictures WHERE url = '#{pfp}';").first["id"]
-  bgp_id = $sql.query("SELECT id FROM pictures WHERE url = '#{bgp}';").first["id"]
-  $sql.query("INSERT INTO users VALUES (DEFAULT, '#{twitch_id}', '#{pfp_id}', '#{bgp_id}', '#{name}', '#{DateTime.now.strftime("%Y-%m-%d")}');")
+  pfp_id = sendQuery("GetPicture", [pfp])["id"]
+  bgp_id = sendQuery("GetPicture", [bgp])["id"]
+
+  sendQuery("NewUser", [twitch_id, pfp_id, bgp_id, name, DateTime.now.strftime("%Y-%m-%d")])
+
   #get the id of the new user
-  $sql.query("SELECT id FROM users WHERE name = '#{name}';").each do |row|
-      user_id = row["id"]
-  end
+  user_id = sendQuery("GetUser", [name])["id"]
+
   #add the user to the joels table and set the count to 1
-  $sql.query("INSERT INTO joels VALUES (DEFAULT, #{user_id}, #{startJoels});")
+  sendQuery("NewJoel", [user_id, startJoels])
 end
 
 #create a channel and channelJoels in the database
 def createChannelDB(channelName)
   channel_id = 0
   #add the channel to the database
-  $sql.query("INSERT INTO channels VALUES (DEFAULT, '#{channelName}', '#{DateTime.now.strftime("%Y-%m-%d")}');")
-  #get the id of the new channel
-  $sql.query("SELECT id FROM channels WHERE name = '#{channelName}';").each do |row|
-      channel_id = row["id"]
-  end
-  #add the channel to the channelJoels table and set the count to 1
-  $sql.query("INSERT INTO channelJoels VALUES (DEFAULT, #{channel_id}, 1);")
+  sendQuery("NewChannel", [channelName, DateTime.now.strftime("%Y-%m-%d")])
 
-  #register the channel owner to the user database if it doesn't exist
-  channelOwnerExists = false
-  #sql request to search if user is in the database
-  $sql.query("SELECT * FROM users WHERE name = '#{channelName}';").each do |row|
-      channelOwnerExists = true
-  end
-  return channelOwnerExists
+  #get the id of the new channel
+  channel_id = sendQuery("GetChannel", [channelName])["id"]
+
+  #add the channel to the channelJoels table and set the count to 1
+  sendQuery("NewChannelJoels", [channelName])
 end
 
 def joelReceived(receivedData, nbJoel)
@@ -438,33 +430,33 @@ def joelReceived(receivedData, nbJoel)
   end
 
   #check if the user is in the database
-  if $sql.query("SELECT * FROM users WHERE name = '#{userName}';").count > 0
-    $sql.query("UPDATE joels SET count = count + #{nbJoel} WHERE user_id = (SELECT id FROM users WHERE name = '#{userName}');")
+  if sendQuery("GetUserArray", [userName]).count > 0
+    sendQuery("UpdateJoel", [nbJoel, userName])
   else
     createUserDB(userName, getTwitchUser(userName), nbJoel)
   end
   #check if the channel is in the database
-  if $sql.query("SELECT * FROM channels WHERE name = '#{channelName}';").count > 0
-    $sql.query("UPDATE channelJoels SET count = count + #{nbJoel} WHERE channel_id = (SELECT id FROM channels WHERE name = '#{channelName}');")
+  if sendQuery("GetChannelArray", [channelName]).count > 0
+    sendQuery("UpdateChannelJoels", [nbJoel, channelName])
   else
     createChannelDB(channelName)
   end
   #check if the channel owner is in the database
-  if $sql.query("SELECT * FROM users WHERE name = '#{channelName}';").count == 0
+  if sendQuery("GetUserArray", [channelName]).count == 0
     createUserDB(channelName, getTwitchUser(channelName), 0)
   end
   #check if the stream is in the database
-  if $sql.query("SELECT * FROM streamJoels WHERE channel_id = (SELECT id FROM channels WHERE name = '#{channelName}') AND streamDate = '#{DateTime.now.strftime("%Y-%m-%d")}';").count > 0
-    $sql.query("UPDATE streamJoels SET count = count + #{nbJoel} WHERE channel_id = (SELECT id FROM channels WHERE name = '#{channelName}') AND streamDate = '#{DateTime.now.strftime("%Y-%m-%d")}';")
+  if sendQuery("GetStreamJoelsToday", [channelName, DateTime.now.strftime("%Y-%m-%d")]) != nil
+    sendQuery("UpdateStreamJoels", [nbJoel, channelName, DateTime.now.strftime("%Y-%m-%d")])
   else
-    $sql.query("INSERT INTO streamJoels VALUES (DEFAULT, (SELECT id FROM channels WHERE name = '#{channelName}'), #{nbJoel}, '#{DateTime.now.strftime("%Y-%m-%d")}');")
+    sendQuery("NewStreamJoels", [channelName, DateTime.now.strftime("%Y-%m-%d")])
   end
 
   #check if the User Joel stream is in the database
-  if $sql.query("SELECT streamUsersJoels.user_id, streamUsersJoels.stream_id, channels.name, users.name FROM streamUsersJoels INNER JOIN streamJoels ON streamJoels.id = streamUsersJoels.stream_id INNER JOIN channels ON channels.id = streamJoels.channel_id INNER JOIN users ON users.id = streamUsersJoels.user_id WHERE channels.name = '#{channelName}' AND users.name = '#{userName}' AND streamJoels.streamDate = '#{DateTime.now.strftime("%Y-%m-%d")}';").count > 0
-    $sql.query("UPDATE streamUsersJoels SET count = count + #{nbJoel} WHERE user_id = (SELECT id FROM users WHERE name = '#{userName}') AND stream_id = (SELECT id FROM streamJoels WHERE channel_id = (SELECT id FROM channels WHERE name = '#{channelName}') AND streamDate = '#{DateTime.now.strftime("%Y-%m-%d")}');")
+  if sendQuery("GetStreamUserJoels", [channelName, userName, DateTime.now.strftime("%Y-%m-%d")]) != nil
+    sendQuery("UpdateStreamUserJoels", [nbJoel, channelName, userName, DateTime.now.strftime("%Y-%m-%d")])
   else
-    $sql.query("INSERT INTO streamUsersJoels VALUES (DEFAULT, (SELECT id FROM streamJoels WHERE channel_id = (SELECT id FROM channels WHERE name = '#{channelName}') AND streamDate = '#{DateTime.now.strftime("%Y-%m-%d")}'), (SELECT id FROM users WHERE name = '#{userName}'), #{nbJoel});")
+    sendQuery("NewStreamUserJoels", [channelName, DateTime.now.strftime("%Y-%m-%d"), userName, nbJoel])
   end
 end
 
@@ -477,15 +469,17 @@ def treatCommands(words, receivedData)
     when "!joelcount"
       if words[1] != "" && words[1] != nil
         username = words[1]
-        if $sql.query("SELECT * FROM users WHERE name = '#{username.downcase}';").count > 0
-          count = $sql.query("SELECT count FROM joels WHERE user_id = (SELECT id FROM users WHERE name = '#{username.downcase}');").first["count"].to_i
+        count = sendQuery("GetUserCount", [username.downcase])
+        if !count.nil?
+          count = count["count"].to_i
           send_twitch_message(channelId.to_i, "#{username} has Joel'd #{count} times")
         else
           send_twitch_message(channelId.to_i, "#{username} didn't Joel yet")
         end
       else
-        if $sql.query("SELECT * FROM users WHERE name = '#{chatterName.downcase}';").count > 0
-          count = $sql.query("SELECT count FROM joels WHERE user_id = (SELECT id FROM users WHERE name = '#{chatterName.downcase}');").first["count"].to_i
+        count = sendQuery("GetUserCount", [chatterName.downcase])
+        if !count.nil?
+          count = count["count"].to_i
           send_twitch_message(channelId.to_i, "#{chatterName} has Joel'd #{count} times")
         else
           send_twitch_message(channelId.to_i, "#{chatterName} didn't Joel yet")
@@ -494,53 +488,56 @@ def treatCommands(words, receivedData)
     when "!joelcountchannel"
       if words[1] != "" && words[1] != nil
         channelName = words[1]
-        if $sql.query("SELECT * FROM channels WHERE name = '#{channelName.downcase}';").count > 0
-          count = $sql.query("SELECT count FROM channelJoels WHERE channel_id = (SELECT id FROM channels WHERE name = '#{channelName.downcase}');").first["count"].to_i
+        count = sendQuery("GetChannelJoels", [channelName.downcase])
+        if !count.nil?
+          count = count["count"].to_i
           send_twitch_message(channelId.to_i, "Joel count on #{channelName} is #{count}")
         else
           send_twitch_message(channelId.to_i, "no Joel on #{channelName} channel yet")
         end
       else
-        if $sql.query("SELECT * FROM channels WHERE name = '#{broadcastName.downcase}';").count > 0
-          count = $sql.query("SELECT count FROM channelJoels WHERE channel_id = (SELECT id FROM channels WHERE name = '#{broadcastName.downcase}');").first["count"].to_i
+        count = sendQuery("GetChannelJoels", [broadcastName.downcase])
+        if !count.nil?
+          count = count["count"].to_i
           send_twitch_message(channelId.to_i, "Joel count on #{broadcastName} is #{count}")
         else
           send_twitch_message(channelId.to_i, "no Joel on this channel yet")
         end
       end
     when "!joelcountstream"
-      if $sql.query("SELECT * FROM streamJoels WHERE channel_id = (SELECT id FROM channels WHERE name = '#{broadcastName.downcase}') AND streamDate = '#{DateTime.now.strftime("%Y-%m-%d")}';").count > 0
-        count = $sql.query("SELECT count FROM streamJoels WHERE channel_id = (SELECT id FROM channels WHERE name = '#{broadcastName.downcase}') AND streamDate = '#{DateTime.now.strftime("%Y-%m-%d")}';").first["count"].to_i
+      count = sendQuery("GetStreamJoelsToday", [broadcastName.downcase, DateTime.now.strftime("%Y-%m-%d")])
+      if !count.nil?
+        count = count["count"].to_i
         send_twitch_message(channelId.to_i, "Joel count on this stream is #{count}")
       else
         send_twitch_message(channelId.to_i, "no Joel today yet")
       end
     when "!joeltop"
-      users = $sql.query("SELECT users.name, joels.count FROM users INNER JOIN joels ON users.id = joels.user_id ORDER BY joels.count DESC LIMIT 5;")
+      users = sendQuery("GetTop5Joels", [])
       message = ""
       users.each_with_index do |user, index|
         message += "#{user["name"]} : #{user["count"].to_i} | "
       end
       send_twitch_message(channelId.to_i, message)
     when "!joeltopchannel"
-      channels = $sql.query("SELECT channels.name, channelJoels.count FROM channels INNER JOIN channelJoels ON channels.id = channelJoels.channel_id ORDER BY channelJoels.count DESC LIMIT 5;")
+      channels = sendQuery("GetTop5JoelsChannel", [])
       message = ""
       channels.each_with_index do |channel, index|
         message += "#{channel["name"]} : #{channel["count"].to_i} | "
       end
       send_twitch_message(channelId.to_i, message)
     when "!joelcommands"
-      send_twitch_message(channelId.to_i, "!JoelCount [username] - !JoelCountChannel [channelname] - !JoelCountStream - get the number of Joels on the current stream - !JoelTop - get the top 5 Joelers - !JoelTopChannel - get the top 5 channels with the most Joels")
+      send_twitch_message(channelId.to_i, "!JoelCount [username] / !JoelCountChannel [channelname] / !JoelCountStream - get the number of Joels on the current stream / !JoelTop - get the top 5 Joelers / !JoelTopChannel - get the top 5 channels with the most Joels / !joelStats [username] - gets basic stats from the user / !jcp - get the current jcp / !joelStatus - get the status of JoelBot")
     when "!joelstats"
       if words[1] != "" && words[1] != nil
         username = words[1]
       else
         username = chatterName
       end
-      if $sql.query("SELECT * FROM users WHERE name = '#{username.downcase}';").count > 0
-        basicStats = $sql.query("SELECT joels.count as totalJoels, users.creationDate as firstJoelDate FROM users JOIN joels ON users.id = joels.user_id WHERE users.name = '#{username.downcase}' LIMIT 1;").first
-        mostJoelStreamStats = $sql.query("SELECT channels.name as MostJoelsInStreamStreamer, streamUsersJoels.count as mostJoelsInStream, streamJoels.streamDate as mostJoelsInStreamDate FROM users JOIN streamUsersJoels ON users.id = streamUsersJoels.user_id JOIN streamJoels ON streamUsersJoels.stream_id = streamJoels.id JOIN channels ON streamJoels.channel_id = channels.id WHERE users.name = '#{username.downcase}' AND streamUsersJoels.count = (SELECT MAX(streamUsersJoels.count) FROM streamUsersJoels WHERE user_id = users.id);").first
-        mostJoeledStreamerStats = $sql.query("SELECT channels.name as mostJoeledStreamer, (SELECT SUM(streamUsersJoels.count) WHERE streamUsersJoels.user_id = users.id AND streamUsersJoels.stream_id = streamJoels.id ) as count FROM users JOIN streamUsersJoels ON users.id = streamUsersJoels.user_id JOIN streamJoels ON streamUsersJoels.stream_id = streamJoels.id JOIN channels ON streamJoels.channel_id = channels.id WHERE users.name = '#{username.downcase}' GROUP BY channels.id ORDER BY count DESC;").first
+      if sendQuery("GetUserArray", [username.downcase]).count > 0
+        basicStats = sendQuery("GetBasicStats", [username.downcase])
+        mostJoelStreamStats = sendQuery("GetMostJoelStreamStats", [username.downcase])
+        mostJoeledStreamerStats = sendQuery("GetMostJoeledStreamerStats", [username.downcase])
 
         message = "#{username} has Joel'd #{basicStats["totalJoels"].to_i} times since #{basicStats["firstJoelDate"]} / "
         message += "Most Joels in a stream : #{mostJoelStreamStats["mostJoelsInStream"]} on #{mostJoelStreamStats["mostJoelsInStreamDate"]} on #{mostJoelStreamStats["MostJoelsInStreamStreamer"]} / "
@@ -557,10 +554,31 @@ def treatCommands(words, receivedData)
   end
 end
 
-getAccess()
+def sendQuery(queryName, body)
+  begin
+    response = $SQLService.post("/joel/#{queryName}") do |req|
+      req.headers['Content-Type'] = 'application/json'
+      req.body = body.to_json
+    end
+    if response.status != 200
+      p response.status
+      p response.body
+    else
+      return JSON.parse(response.body)
+    end
+  rescue
+    return {}
+  end
+end
+
+getTwitchToken()
+if $twitch_token.nil?
+  puts "error getting twitch token".red
+  exit
+end
 $me_twitch_id = getTwitchUser("venorrak")["data"][0]["id"]
 if $me_twitch_id.nil?
-  puts "error getting my twitch id"
+  puts "error getting my twitch id".red
   exit
 end
 updateLastStreamJCP()
@@ -574,14 +592,9 @@ Thread.start do
       updateJCP()
       updateJCPDB()
       if now - $twoMinWait > 120
-        $sql.query("SELECT 1;")
         updateTrackedChannels()
         updateLastStreamJCP()
         $twoMinWait = now
-      end
-      if now - $last_twitch_refresh > 5000
-        refreshTwitchAccess()
-        $last_twitch_refresh = now
       end
     rescue => exception
       puts exception
@@ -684,6 +697,42 @@ end
 if getLiveChannels().count > 0
   $online = true
   startWebsocket("wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30")
+end
+
+Thread.start do
+  EM.run do
+    bus = Faye::WebSocket::Client.new('ws://192.168.0.16:5963')
+  
+    bus.on :open do |event|
+      p [:open, "BUS"]
+      $bus = bus
+    end
+  
+    bus.on :message do |event|
+      begin
+        data = JSON.parse(event.data)
+      rescue
+        data = event.data
+      end
+  
+      if data["to"] == "all" && data["from"] == "BUS"
+        if data["payload"]["type"] == "token_refreshed"
+          case data["payload"]["client"]
+          when "twitch"
+            getTwitchToken()
+          end
+        end
+      end
+    end
+  
+    bus.on :error do |event|
+      p [:error, event.message, "BUS"]
+    end
+  
+    bus.on :close do |event|
+      p [:close, event.code, event.reason, "BUS"]
+    end
+  end
 end
 
 #keep the bot running until the user types exit
