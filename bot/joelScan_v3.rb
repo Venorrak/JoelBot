@@ -23,18 +23,18 @@ $online = false
 $twitch_token = nil
 $joinedChannels = []
 $acceptedJoels = ["GoldenJoel" , "Joel2" , "Joeler" , "Joel" , "jol" , "JoelCheck" , "JoelbutmywindowsXPiscrashing" , "JOELLINES", "Joeling", "Joeling", "LetHimJoel", "JoelPride", "WhoLetHimJoel", "Joelest", "EvilJoel", "JUSSY", "JoelJams", "JoelTrain", "BarrelJoel", "JoelWide1", "JoelWide2", "Joeling2"]
-$followedChannels = ["jakecreatesstuff", "venorrak", "lcolonq", "prodzpod", "cr4zyk1tty", "tyumici", "colinahscopy_"]
+$followedChannels = ["jakecreatesstuff", "venorrak", "lcolonq", "prodzpod", "cr4zyk1tty", "tyumici", "colinahscopy_", "mickynoon"]
 $lastJoelPerStream = []
 $lastStreamJCP = []
-$commandChannels = ["venorrak", "prodzpod", "cr4zyk1tty", "jakecreatesstuff", "tyumici", "lcolonq", "colinahscopy_"]
+$commandChannels = ["venorrak", "prodzpod", "cr4zyk1tty", "jakecreatesstuff", "tyumici", "lcolonq", "colinahscopy_", "mickynoon"]
 $twoMinWait = AbsoluteTime.now
 $initiationDateTime = Time.new()
 $me_twitch_id = nil
 $twitch_session_id = nil
 $JCP = 0
+$lastLongJCP = nil
+$lastShortJCP = nil
 $bus = nil
-
-$sql = Mysql2::Client.new(:host => "localhost", :username => "bot", :password => "joel", :reconnect => true, :database => "joelScan")
 
 $TokenService = Faraday.new(url: 'http://localhost:5002') do |conn|
   conn.request :url_encoded
@@ -131,32 +131,31 @@ def getLiveChannels()
   channelsString = ""
   #https://dev.twitch.tv/docs/api/reference/#get-streams
   $followedChannels.each do |channel|
-      response = $twitch_api.get("/helix/streams?user_login=#{channel}") do |req|
-          req.headers["Authorization"] = "Bearer #{$twitch_token}"
-          req.headers["Client-Id"] = @client_id
-      end
-      begin
-        if response.status == 401
-          getTwitchToken()
-          return response.body
-        end
+    response = $twitch_api.get("/helix/streams?user_login=#{channel}") do |req|
+        req.headers["Authorization"] = "Bearer #{$twitch_token}"
+        req.headers["Client-Id"] = @client_id
+    end
 
-        rep = JSON.parse(response.body)
+    if response.status == 401
+      getTwitchToken()
+      return response.body
+    end
 
-        if rep.nil? || rep["data"].nil?
-          return response.body
-        end
-        rep["data"].each do |stream|
-          if stream["type"] == "live"
-            liveChannels << "#{stream["user_login"]}"
-          end
-        end
-      rescue => exception
-        puts exception
-        getTwitchToken()
-        #if the response is not json or doesn't contain the data key
-        return response.body
+    begin
+      rep = JSON.parse(response.body)
+    rescue
+      return nil
+    end
+
+    if rep.nil? || rep["data"].nil?
+      return response.body
+    end
+
+    rep["data"].each do |stream|
+      if stream["type"] == "live"
+        liveChannels << "#{stream["user_login"]}"
       end
+    end
   end
   return liveChannels
 end
@@ -171,17 +170,18 @@ def getLastStreamJCP(channelName)
     req.headers["Authorization"] = "Bearer #{$twitch_token}"
     req.headers["Client-Id"] = @client_id
   end
-  begin
-    if response.status == 401
-      getTwitchToken()
-      return nil
-    end
 
-    rep = JSON.parse(response.body)
-  rescue
+  if response.status == 401
     getTwitchToken()
     return nil
   end
+
+  begin
+    rep = JSON.parse(response.body)
+  rescue
+    return nil
+  end
+
   if rep["data"].count == 0
     videoDuration = "0m0s"
   else
@@ -194,7 +194,11 @@ def getLastStreamJCP(channelName)
   seconds = videoDuration.split("m")[1].to_f
   totalMinutes = (minutes * 60 + seconds) / 60
   totalJoelCountLastStream = sendQuery("GetTotalJoelCountLastStream", [channelName])["count"].to_i rescue 0
-  return totalJoelCountLastStream / totalMinutes rescue 0
+  result = totalJoelCountLastStream / totalMinutes rescue 0
+  if result == Float::INFINITY
+    return 0
+  end
+  return result
 end
 
 def updateLastStreamJCP()
@@ -220,11 +224,8 @@ def updateJCP()
   $followedChannels.each do |channel|
     if joinedChannelsName.include?(channel)
       timeSinceLastJoel = (now - $lastJoelPerStream.find { |channelData| channelData[:channel] == channel }[:lastJoel]) / 60#minutes
-      p timeSinceLastJoel
       totalJoelCountLastStream = sendQuery("GetTotalJoelCountLastStream", [channel])["count"].to_f rescue 0.0
-      p totalJoelCountLastStream
       joelPerMinute = totalJoelCountLastStream / ((Time.now() - $joinedChannels.find {|joinedChannel| joinedChannel[:channel] == channel}[:subscription_time]) / 60.0) rescue 0.0 # Joels per minute
-      p joelPerMinute
     else
       joelPerMinute = $lastStreamJCP.find { |channelData| channelData[:channel] == channel }[:JCP] # Joels per minute
       minutePerJoel = 1.0 / joelPerMinute rescue 0 # Minutes per Joel
@@ -275,21 +276,32 @@ def printJCPStatus()
 end
 
 def updateJCPDB()
-  if sendQuery("GetJCPlongAll", []).count == 0
-    sendQuery("NewJCPLong", [$JCP, Time.now.strftime('%Y-%m-%d %H:%M:%S')])
+  # if sendQuery("GetJCPlongAll", []).size == 0
+  #   sendQuery("NewJCPLong", [$JCP, Time.now.strftime('%Y-%m-%d %H:%M:%S')])
+  # end
+  # if sendQuery("GetJCPshortAll", []).size == 0
+  #   sendQuery("NewJCPShort", [$JCP, Time.now.strftime('%Y-%m-%d %H:%M:%S')])
+  # end
+  if $lastLongJCP.nil?
+    $lastLongJCP = sendQuery("GetLastLongJCP", [])
   end
-  if sendQuery("GetJCPshortAll", []).count == 0
-    sendQuery("NewJCPShort", [$JCP, Time.now.strftime('%Y-%m-%d %H:%M:%S')])
+  if $lastShortJCP.nil?
+    $lastShortJCP = sendQuery("GetLastShortJCP", [])
   end
 
-  lastLongJCP = sendQuery("GetLastLongJCP", [])
-  lastShortJCP = sendQuery("GetLastShortJCP", [])
-
-  if Time.now - Time.parse(lastLongJCP["timestamp"]) > 60
+  if Time.now - Time.parse($lastLongJCP["timestamp"]) > 60
     sendQuery("NewJCPlong", [$JCP, Time.now.strftime('%Y-%m-%d %H:%M:%S')])
+    $lastLongJCP = {
+      "JCP" => $JCP,
+      "timestamp" => Time.now.strftime('%Y-%m-%d %H:%M:%S')
+    }
   end
-  if Time.now - Time.parse(lastShortJCP["timestamp"]) > 15
+  if Time.now - Time.parse($lastShortJCP["timestamp"]) > 15
     sendQuery("NewJCPshort", [$JCP, Time.now.strftime('%Y-%m-%d %H:%M:%S')])
+    $lastShortJCP = {
+      "JCP" => $JCP,
+      "timestamp" => Time.now.strftime('%Y-%m-%d %H:%M:%S')
+    }
   end
 
   # delete old data in JCPshort where the timestamp is older than 24 hours
@@ -415,7 +427,7 @@ def createChannelDB(channelName)
   channel_id = sendQuery("GetChannel", [channelName])["id"]
 
   #add the channel to the channelJoels table and set the count to 1
-  sendQuery("NewChannelJoels", [channelName])
+  sendQuery("NewChannelJoels", [channel_id])
 end
 
 def joelReceived(receivedData, nbJoel)
@@ -430,19 +442,19 @@ def joelReceived(receivedData, nbJoel)
   end
 
   #check if the user is in the database
-  if sendQuery("GetUserArray", [userName]).count > 0
+  if sendQuery("GetUserArray", [userName]).size > 0
     sendQuery("UpdateJoel", [nbJoel, userName])
   else
     createUserDB(userName, getTwitchUser(userName), nbJoel)
   end
   #check if the channel is in the database
-  if sendQuery("GetChannelArray", [channelName]).count > 0
+  if sendQuery("GetChannelArray", [channelName]).size > 0
     sendQuery("UpdateChannelJoels", [nbJoel, channelName])
   else
     createChannelDB(channelName)
   end
   #check if the channel owner is in the database
-  if sendQuery("GetUserArray", [channelName]).count == 0
+  if sendQuery("GetUserArray", [channelName]).size == 0
     createUserDB(channelName, getTwitchUser(channelName), 0)
   end
   #check if the stream is in the database
@@ -466,7 +478,7 @@ def treatCommands(words, receivedData)
   broadcastName = receivedData["payload"]["event"]["broadcaster_user_login"]
   if $commandChannels.include?(broadcastName)
     case words[0].downcase
-    when "!joelcount"
+    when "!joelcount", "!jcount", "!jc"
       if words[1] != "" && words[1] != nil
         username = words[1]
         count = sendQuery("GetUserCount", [username.downcase])
@@ -485,7 +497,7 @@ def treatCommands(words, receivedData)
           send_twitch_message(channelId.to_i, "#{chatterName} didn't Joel yet")
         end
       end
-    when "!joelcountchannel"
+    when "!joelcountchannel", "!jcountchannel", "!jcc"
       if words[1] != "" && words[1] != nil
         channelName = words[1]
         count = sendQuery("GetChannelJoels", [channelName.downcase])
@@ -504,7 +516,7 @@ def treatCommands(words, receivedData)
           send_twitch_message(channelId.to_i, "no Joel on this channel yet")
         end
       end
-    when "!joelcountstream"
+    when "!joelcountstream", "!jcountstream", "!jcs"
       count = sendQuery("GetStreamJoelsToday", [broadcastName.downcase, DateTime.now.strftime("%Y-%m-%d")])
       if !count.nil?
         count = count["count"].to_i
@@ -512,29 +524,29 @@ def treatCommands(words, receivedData)
       else
         send_twitch_message(channelId.to_i, "no Joel today yet")
       end
-    when "!joeltop"
+    when "!joeltop", "!jtop", "!jt"
       users = sendQuery("GetTop5Joels", [])
       message = ""
       users.each_with_index do |user, index|
         message += "#{user["name"]} : #{user["count"].to_i} | "
       end
       send_twitch_message(channelId.to_i, message)
-    when "!joeltopchannel"
+    when "!joeltopchannel", "!jtopchannel", "!jtc"
       channels = sendQuery("GetTop5JoelsChannel", [])
       message = ""
       channels.each_with_index do |channel, index|
         message += "#{channel["name"]} : #{channel["count"].to_i} | "
       end
       send_twitch_message(channelId.to_i, message)
-    when "!joelcommands"
+    when "!joelcommands", "!jcommands"
       send_twitch_message(channelId.to_i, "!JoelCount [username] / !JoelCountChannel [channelname] / !JoelCountStream - get the number of Joels on the current stream / !JoelTop - get the top 5 Joelers / !JoelTopChannel - get the top 5 channels with the most Joels / !joelStats [username] - gets basic stats from the user / !jcp - get the current jcp / !joelStatus - get the status of JoelBot")
-    when "!joelstats"
+    when "!joelstats", "!jstats", "!js"
       if words[1] != "" && words[1] != nil
         username = words[1]
       else
         username = chatterName
       end
-      if sendQuery("GetUserArray", [username.downcase]).count > 0
+      if sendQuery("GetUserArray", [username.downcase]).size > 0
         basicStats = sendQuery("GetBasicStats", [username.downcase])
         mostJoelStreamStats = sendQuery("GetMostJoelStreamStats", [username.downcase])
         mostJoeledStreamerStats = sendQuery("GetMostJoeledStreamerStats", [username.downcase])
@@ -585,21 +597,37 @@ updateLastStreamJCP()
 createEmptyDataForLastJoel()
 
 Thread.start do
-  loop do
-    begin
-      sleep(1)
-      now = AbsoluteTime.now
-      updateJCP()
-      updateJCPDB()
-      if now - $twoMinWait > 120
-        updateTrackedChannels()
-        updateLastStreamJCP()
-        $twoMinWait = now
+  EM.run do
+    bus = Faye::WebSocket::Client.new('ws://192.168.0.16:5963')
+  
+    bus.on :open do |event|
+      p [:open, "BUS"]
+      $bus = bus
+    end
+  
+    bus.on :message do |event|
+      begin
+        data = JSON.parse(event.data)
+      rescue
+        data = event.data
       end
-    rescue => exception
-      puts exception
-      sendNotif("Bot stopped checking channels", "Alert")
-      break
+  
+      if data["to"] == "all" && data["from"] == "BUS"
+        if data["payload"]["type"] == "token_refreshed"
+          case data["payload"]["client"]
+          when "twitch"
+            getTwitchToken()
+          end
+        end
+      end
+    end
+  
+    bus.on :error do |event|
+      p [:error, event.message, "BUS"]
+    end
+  
+    bus.on :close do |event|
+      p [:close, event.code, event.reason, "BUS"]
     end
   end
 end
@@ -609,7 +637,7 @@ def startWebsocket(url, isReconnect = false)
     ws = Faye::WebSocket::Client.new(url)
 
     ws.on :open do |event|
-      #p [:open]
+      p [:open, "twitch", Time.now().to_s.split(" ")[1]]
     end
 
     ws.on :message do |event|
@@ -659,7 +687,7 @@ def startWebsocket(url, isReconnect = false)
         when "channel.chat.message"
           message = receivedData["payload"]["event"]["message"]["text"]
           puts "#{receivedData["payload"]["event"]["chatter_user_login"]}: #{message}"
-          words = message.strip.split(" ")
+          words = message.delete_suffix("\u{E0000}").strip.split(" ")
           treatCommands(words, receivedData)
           nbJoelInMessage = 0
           words.each do |word|
@@ -699,48 +727,19 @@ if getLiveChannels().count > 0
   startWebsocket("wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30")
 end
 
-Thread.start do
-  EM.run do
-    bus = Faye::WebSocket::Client.new('ws://192.168.0.16:5963')
-  
-    bus.on :open do |event|
-      p [:open, "BUS"]
-      $bus = bus
+loop do
+  begin
+    sleep(1)
+    now = AbsoluteTime.now
+    updateJCP()
+    updateJCPDB()
+    if now - $twoMinWait > 120
+      updateTrackedChannels()
+      updateLastStreamJCP()
+      $twoMinWait = now
     end
-  
-    bus.on :message do |event|
-      begin
-        data = JSON.parse(event.data)
-      rescue
-        data = event.data
-      end
-  
-      if data["to"] == "all" && data["from"] == "BUS"
-        if data["payload"]["type"] == "token_refreshed"
-          case data["payload"]["client"]
-          when "twitch"
-            getTwitchToken()
-          end
-        end
-      end
-    end
-  
-    bus.on :error do |event|
-      p [:error, event.message, "BUS"]
-    end
-  
-    bus.on :close do |event|
-      p [:close, event.code, event.reason, "BUS"]
-    end
-  end
-end
-
-#keep the bot running until the user types exit
-input = ""
-until input == "exit"
-  input = gets.chomp
-  if input == "irb"
-    binding.irb
+  rescue => exception
+    puts exception.red
   end
 end
 
