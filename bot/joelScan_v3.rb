@@ -441,34 +441,39 @@ def joelReceived(receivedData, nbJoel)
     end
   end
 
-  #check if the user is in the database
-  if sendQuery("GetUserArray", [userName]).size > 0
-    sendQuery("UpdateJoel", [nbJoel, userName])
-  else
-    createUserDB(userName, getTwitchUser(userName), nbJoel)
-  end
-  #check if the channel is in the database
-  if sendQuery("GetChannelArray", [channelName]).size > 0
-    sendQuery("UpdateChannelJoels", [nbJoel, channelName])
-  else
-    createChannelDB(channelName)
-  end
-  #check if the channel owner is in the database
-  if sendQuery("GetUserArray", [channelName]).size == 0
-    createUserDB(channelName, getTwitchUser(channelName), 0)
-  end
-  #check if the stream is in the database
-  if sendQuery("GetStreamJoelsToday", [channelName, DateTime.now.strftime("%Y-%m-%d")]) != nil
-    sendQuery("UpdateStreamJoels", [nbJoel, channelName, DateTime.now.strftime("%Y-%m-%d")])
-  else
-    sendQuery("NewStreamJoels", [channelName, DateTime.now.strftime("%Y-%m-%d")])
-  end
+  begin
+    #check if the user is in the database
+    if !sendQuery("GetUser", [userName]).nil?
+      sendQuery("UpdateJoel", [nbJoel, userName])
+    else
+      createUserDB(userName, getTwitchUser(userName), nbJoel)
+    end
+    #check if the channel is in the database
+    if !sendQuery("GetChannel", [channelName]).nil?
+      sendQuery("UpdateChannelJoels", [nbJoel, channelName])
+    else
+      createChannelDB(channelName)
+    end
+    #check if the channel owner is in the database
+    if sendQuery("GetUser", [channelName]).nil?
+      createUserDB(channelName, getTwitchUser(channelName), 0)
+    end
+    #check if the stream is in the database
+    if !sendQuery("GetStreamJoelsToday", [channelName, DateTime.now.strftime("%Y-%m-%d")]).nil?
+      sendQuery("UpdateStreamJoels", [nbJoel, channelName, DateTime.now.strftime("%Y-%m-%d")])
+    else
+      sendQuery("NewStreamJoels", [channelName, DateTime.now.strftime("%Y-%m-%d")])
+    end
 
-  #check if the User Joel stream is in the database
-  if sendQuery("GetStreamUserJoels", [channelName, userName, DateTime.now.strftime("%Y-%m-%d")]) != nil
-    sendQuery("UpdateStreamUserJoels", [nbJoel, channelName, userName, DateTime.now.strftime("%Y-%m-%d")])
-  else
-    sendQuery("NewStreamUserJoels", [channelName, DateTime.now.strftime("%Y-%m-%d"), userName, nbJoel])
+    #check if the User Joel stream is in the database
+    if !sendQuery("GetStreamUserJoels", [channelName, userName, DateTime.now.strftime("%Y-%m-%d")]).nil?
+      sendQuery("UpdateStreamUserJoels", [nbJoel, channelName, userName, DateTime.now.strftime("%Y-%m-%d")])
+    else
+      sendQuery("NewStreamUserJoels", [channelName, DateTime.now.strftime("%Y-%m-%d"), userName, nbJoel])
+    end
+    
+  rescue => exception
+    puts exception
   end
 end
 
@@ -567,30 +572,30 @@ def treatCommands(words, receivedData)
 end
 
 def sendQuery(queryName, body)
-  begin
-    response = $SQLService.post("/joel/#{queryName}") do |req|
-      req.headers['Content-Type'] = 'application/json'
-      req.body = body.to_json
-    end
-    if response.status != 200
-      p response.status
-      p response.body
-    else
-      return JSON.parse(response.body)
-    end
-  rescue
-    return {}
+  response = $SQLService.post("/joel/#{queryName}") do |req|
+    req.headers['Content-Type'] = 'application/json'
+    req.body = body.to_json
+  end
+  case response.status
+  when 200
+    return JSON.parse(response.body)
+  when 400, 404
+    sendNotif('bot crashed bacause of bad code', 'bot down')
+    p 'bad code dumbass'
+    exit
+  when 500
+    throw "SQL Service Error"
   end
 end
 
 getTwitchToken()
 if $twitch_token.nil?
-  puts "error getting twitch token".red
+  puts "error getting twitch token"
   exit
 end
 $me_twitch_id = getTwitchUser("venorrak")["data"][0]["id"]
 if $me_twitch_id.nil?
-  puts "error getting my twitch id".red
+  puts "error getting my twitch id"
   exit
 end
 updateLastStreamJCP()
@@ -739,7 +744,9 @@ loop do
       $twoMinWait = now
     end
   rescue => exception
-    puts exception.red
+    puts "------------------------"
+    puts exception
+    puts "------------------------"
   end
 end
 
