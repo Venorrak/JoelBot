@@ -276,36 +276,34 @@ def printJCPStatus()
 end
 
 def updateJCPDB()
-  # if sendQuery("GetJCPlongAll", []).size == 0
-  #   sendQuery("NewJCPLong", [$JCP, Time.now.strftime('%Y-%m-%d %H:%M:%S')])
-  # end
-  # if sendQuery("GetJCPshortAll", []).size == 0
-  #   sendQuery("NewJCPShort", [$JCP, Time.now.strftime('%Y-%m-%d %H:%M:%S')])
-  # end
-  if $lastLongJCP.nil?
-    $lastLongJCP = sendQuery("GetLastLongJCP", [])
-  end
-  if $lastShortJCP.nil?
-    $lastShortJCP = sendQuery("GetLastShortJCP", [])
-  end
+  begin
+    if $lastLongJCP.nil?
+      $lastLongJCP = sendQuery("GetLastLongJCP", [])
+    end
+    if $lastShortJCP.nil?
+      $lastShortJCP = sendQuery("GetLastShortJCP", [])
+    end
 
-  if Time.now - Time.parse($lastLongJCP["timestamp"]) > 60
-    sendQuery("NewJCPlong", [$JCP, Time.now.strftime('%Y-%m-%d %H:%M:%S')])
-    $lastLongJCP = {
-      "JCP" => $JCP,
-      "timestamp" => Time.now.strftime('%Y-%m-%d %H:%M:%S')
-    }
-  end
-  if Time.now - Time.parse($lastShortJCP["timestamp"]) > 15
-    sendQuery("NewJCPshort", [$JCP, Time.now.strftime('%Y-%m-%d %H:%M:%S')])
-    $lastShortJCP = {
-      "JCP" => $JCP,
-      "timestamp" => Time.now.strftime('%Y-%m-%d %H:%M:%S')
-    }
-  end
+    if Time.now - Time.parse($lastLongJCP["timestamp"]) > 60
+      sendQuery("NewJCPlong", [$JCP, Time.now.strftime('%Y-%m-%d %H:%M:%S')])
+      $lastLongJCP = {
+        "JCP" => $JCP,
+        "timestamp" => Time.now.strftime('%Y-%m-%d %H:%M:%S')
+      }
+    end
+    if Time.now - Time.parse($lastShortJCP["timestamp"]) > 15
+      sendQuery("NewJCPshort", [$JCP, Time.now.strftime('%Y-%m-%d %H:%M:%S')])
+      $lastShortJCP = {
+        "JCP" => $JCP,
+        "timestamp" => Time.now.strftime('%Y-%m-%d %H:%M:%S')
+      }
+    end
 
-  # delete old data in JCPshort where the timestamp is older than 24 hours
-  sendQuery("DeleteOldShortJCP", [(Time.now - 86400).strftime('%Y-%m-%d %H:%M:%S')])
+    # delete old data in JCPshort where the timestamp is older than 24 hours
+    sendQuery("DeleteOldShortJCP", [(Time.now - 86400).strftime('%Y-%m-%d %H:%M:%S')])
+  rescue => exception
+    puts exception
+  end
 end
 
 def createEmptyDataForLastJoel()
@@ -335,7 +333,7 @@ def updateTrackedChannels()
         begin
           subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, getTwitchUser(channel)["data"][0]["id"])
           $joinedChannels << {:channel => channel, :subscription_id => subscribeData["data"][0]["id"], :subscription_time => Time.now}
-          send_twitch_message(channel, "JoelBot has entered the chat")
+          send_twitch_message(channel, "JoelBot has entered the chat, !JoelCommands for commands")
           sendNotif("Bot joined #{channel}", "Alert Bot Joined Channel")
         rescue => exception
           puts exception
@@ -387,47 +385,57 @@ end
 
 #create a user and joel in the database
 def createUserDB(name, userData, startJoels)
-  pfp = nil
-  bgp = nil
-  twitch_id = nil
-  user_id = 0
-  pfp_id = 0
-  bgp_id = 0
-  if userData.nil?
-    return
+  begin
+    pfp = nil
+    bgp = nil
+    twitch_id = nil
+    user_id = 0
+    pfp_id = 0
+    bgp_id = 0
+    if userData.nil?
+      return
+    end
+    userData["data"].each do |user|
+        twitch_id = user["id"]
+        pfp = user["profile_image_url"]
+        bgp = user["offline_image_url"]
+    end
+
+    sendQuery("NewPfp", [pfp])
+    sendQuery("NewBgp", [bgp])
+    
+    pfp_id = sendQuery("GetPicture", [pfp])["id"]
+    bgp_id = sendQuery("GetPicture", [bgp])["id"]
+
+    sendQuery("NewUser", [twitch_id, pfp_id, bgp_id, name, DateTime.now.strftime("%Y-%m-%d")])
+
+    #get the id of the new user
+    user_id = sendQuery("GetUser", [name])["id"]
+
+    #add the user to the joels table and set the count to 1
+    sendQuery("NewJoel", [user_id, startJoels])
+  rescue => exception
+    p exception
+    sendNotif("Error creating user in the database", "Alert")
   end
-  userData["data"].each do |user|
-      twitch_id = user["id"]
-      pfp = user["profile_image_url"]
-      bgp = user["offline_image_url"]
-  end
-
-  sendQuery("NewPfp", [pfp])
-  sendQuery("NewBgp", [bgp])
-  
-  pfp_id = sendQuery("GetPicture", [pfp])["id"]
-  bgp_id = sendQuery("GetPicture", [bgp])["id"]
-
-  sendQuery("NewUser", [twitch_id, pfp_id, bgp_id, name, DateTime.now.strftime("%Y-%m-%d")])
-
-  #get the id of the new user
-  user_id = sendQuery("GetUser", [name])["id"]
-
-  #add the user to the joels table and set the count to 1
-  sendQuery("NewJoel", [user_id, startJoels])
 end
 
 #create a channel and channelJoels in the database
 def createChannelDB(channelName)
   channel_id = 0
-  #add the channel to the database
-  sendQuery("NewChannel", [channelName, DateTime.now.strftime("%Y-%m-%d")])
+  begin
+    #add the channel to the database
+    sendQuery("NewChannel", [channelName, DateTime.now.strftime("%Y-%m-%d")])
 
-  #get the id of the new channel
-  channel_id = sendQuery("GetChannel", [channelName])["id"]
+    #get the id of the new channel
+    channel_id = sendQuery("GetChannel", [channelName])["id"]
 
-  #add the channel to the channelJoels table and set the count to 1
-  sendQuery("NewChannelJoels", [channel_id])
+    #add the channel to the channelJoels table and set the count to 1
+    sendQuery("NewChannelJoels", [channel_id])
+  rescue => exception
+    p exception
+    sendNotif("Error creating channel in the database", "Alert")
+  end
 end
 
 def joelReceived(receivedData, nbJoel)
@@ -481,93 +489,97 @@ def treatCommands(words, receivedData)
   chatterName = receivedData["payload"]["event"]["chatter_user_login"]
   channelId = receivedData["payload"]["event"]["broadcaster_user_id"]
   broadcastName = receivedData["payload"]["event"]["broadcaster_user_login"]
-  if $commandChannels.include?(broadcastName)
-    case words[0].downcase
-    when "!joelcount", "!jcount", "!jc"
-      if words[1] != "" && words[1] != nil
-        username = words[1]
-        count = sendQuery("GetUserCount", [username.downcase])
+  begin
+    if $commandChannels.include?(broadcastName)
+      case words[0].downcase
+      when "!joelcount", "!jcount", "!jc"
+        if words[1] != "" && words[1] != nil
+          username = words[1]
+          count = sendQuery("GetUserCount", [username.downcase])
+          if !count.nil?
+            count = count["count"].to_i
+            send_twitch_message(channelId.to_i, "#{username} has Joel'd #{count} times")
+          else
+            send_twitch_message(channelId.to_i, "#{username} didn't Joel yet")
+          end
+        else
+          count = sendQuery("GetUserCount", [chatterName.downcase])
+          if !count.nil?
+            count = count["count"].to_i
+            send_twitch_message(channelId.to_i, "#{chatterName} has Joel'd #{count} times")
+          else
+            send_twitch_message(channelId.to_i, "#{chatterName} didn't Joel yet")
+          end
+        end
+      when "!joelcountchannel", "!jcountchannel", "!jcc"
+        if words[1] != "" && words[1] != nil
+          channelName = words[1]
+          count = sendQuery("GetChannelJoels", [channelName.downcase])
+          if !count.nil?
+            count = count["count"].to_i
+            send_twitch_message(channelId.to_i, "Joel count on #{channelName} is #{count}")
+          else
+            send_twitch_message(channelId.to_i, "no Joel on #{channelName} channel yet")
+          end
+        else
+          count = sendQuery("GetChannelJoels", [broadcastName.downcase])
+          if !count.nil?
+            count = count["count"].to_i
+            send_twitch_message(channelId.to_i, "Joel count on #{broadcastName} is #{count}")
+          else
+            send_twitch_message(channelId.to_i, "no Joel on this channel yet")
+          end
+        end
+      when "!joelcountstream", "!jcountstream", "!jcs"
+        count = sendQuery("GetStreamJoelsToday", [broadcastName.downcase, DateTime.now.strftime("%Y-%m-%d")])
         if !count.nil?
           count = count["count"].to_i
-          send_twitch_message(channelId.to_i, "#{username} has Joel'd #{count} times")
+          send_twitch_message(channelId.to_i, "Joel count on this stream is #{count}")
+        else
+          send_twitch_message(channelId.to_i, "no Joel today yet")
+        end
+      when "!joeltop", "!jtop", "!jt"
+        users = sendQuery("GetTop5Joels", [])
+        message = ""
+        users.each_with_index do |user, index|
+          message += "#{user["name"]} : #{user["count"].to_i} | "
+        end
+        send_twitch_message(channelId.to_i, message)
+      when "!joeltopchannel", "!jtopchannel", "!jtc"
+        channels = sendQuery("GetTop5JoelsChannel", [])
+        message = ""
+        channels.each_with_index do |channel, index|
+          message += "#{channel["name"]} : #{channel["count"].to_i} | "
+        end
+        send_twitch_message(channelId.to_i, message)
+      when "!joelcommands", "!jcommands"
+        send_twitch_message(channelId.to_i, "!JoelCount [username] / !JoelCountChannel [channelname] / !JoelCountStream - get the number of Joels on the current stream / !JoelTop - get the top 5 Joelers / !JoelTopChannel - get the top 5 channels with the most Joels / !joelStats [username] - gets basic stats from the user / !jcp - get the current jcp / !joelStatus - get the status of JoelBot")
+      when "!joelstats", "!jstats", "!js"
+        if words[1] != "" && words[1] != nil
+          username = words[1]
+        else
+          username = chatterName
+        end
+        if sendQuery("GetUserArray", [username.downcase]).size > 0
+          basicStats = sendQuery("GetBasicStats", [username.downcase])
+          mostJoelStreamStats = sendQuery("GetMostJoelStreamStats", [username.downcase])
+          mostJoeledStreamerStats = sendQuery("GetMostJoeledStreamerStats", [username.downcase])
+
+          message = "#{username} has Joel'd #{basicStats["totalJoels"].to_i} times since #{basicStats["firstJoelDate"]} / "
+          message += "Most Joels in a stream : #{mostJoelStreamStats["mostJoelsInStream"]} on #{mostJoelStreamStats["mostJoelsInStreamDate"]} on #{mostJoelStreamStats["MostJoelsInStreamStreamer"]} / "
+          message += "Most Joeled streamer : #{mostJoeledStreamerStats["count"]} on #{mostJoeledStreamerStats["mostJoeledStreamer"]}"
+          send_twitch_message(channelId.to_i, message)
         else
           send_twitch_message(channelId.to_i, "#{username} didn't Joel yet")
         end
-      else
-        count = sendQuery("GetUserCount", [chatterName.downcase])
-        if !count.nil?
-          count = count["count"].to_i
-          send_twitch_message(channelId.to_i, "#{chatterName} has Joel'd #{count} times")
-        else
-          send_twitch_message(channelId.to_i, "#{chatterName} didn't Joel yet")
-        end
+      when "!jcp"
+        send_twitch_message(channelId.to_i, "JCP : #{$JCP.round(2)}%")
+      when "!joelstatus"
+        send_twitch_message(channelId.to_i, "JoelBot is online")
       end
-    when "!joelcountchannel", "!jcountchannel", "!jcc"
-      if words[1] != "" && words[1] != nil
-        channelName = words[1]
-        count = sendQuery("GetChannelJoels", [channelName.downcase])
-        if !count.nil?
-          count = count["count"].to_i
-          send_twitch_message(channelId.to_i, "Joel count on #{channelName} is #{count}")
-        else
-          send_twitch_message(channelId.to_i, "no Joel on #{channelName} channel yet")
-        end
-      else
-        count = sendQuery("GetChannelJoels", [broadcastName.downcase])
-        if !count.nil?
-          count = count["count"].to_i
-          send_twitch_message(channelId.to_i, "Joel count on #{broadcastName} is #{count}")
-        else
-          send_twitch_message(channelId.to_i, "no Joel on this channel yet")
-        end
-      end
-    when "!joelcountstream", "!jcountstream", "!jcs"
-      count = sendQuery("GetStreamJoelsToday", [broadcastName.downcase, DateTime.now.strftime("%Y-%m-%d")])
-      if !count.nil?
-        count = count["count"].to_i
-        send_twitch_message(channelId.to_i, "Joel count on this stream is #{count}")
-      else
-        send_twitch_message(channelId.to_i, "no Joel today yet")
-      end
-    when "!joeltop", "!jtop", "!jt"
-      users = sendQuery("GetTop5Joels", [])
-      message = ""
-      users.each_with_index do |user, index|
-        message += "#{user["name"]} : #{user["count"].to_i} | "
-      end
-      send_twitch_message(channelId.to_i, message)
-    when "!joeltopchannel", "!jtopchannel", "!jtc"
-      channels = sendQuery("GetTop5JoelsChannel", [])
-      message = ""
-      channels.each_with_index do |channel, index|
-        message += "#{channel["name"]} : #{channel["count"].to_i} | "
-      end
-      send_twitch_message(channelId.to_i, message)
-    when "!joelcommands", "!jcommands"
-      send_twitch_message(channelId.to_i, "!JoelCount [username] / !JoelCountChannel [channelname] / !JoelCountStream - get the number of Joels on the current stream / !JoelTop - get the top 5 Joelers / !JoelTopChannel - get the top 5 channels with the most Joels / !joelStats [username] - gets basic stats from the user / !jcp - get the current jcp / !joelStatus - get the status of JoelBot")
-    when "!joelstats", "!jstats", "!js"
-      if words[1] != "" && words[1] != nil
-        username = words[1]
-      else
-        username = chatterName
-      end
-      if sendQuery("GetUserArray", [username.downcase]).size > 0
-        basicStats = sendQuery("GetBasicStats", [username.downcase])
-        mostJoelStreamStats = sendQuery("GetMostJoelStreamStats", [username.downcase])
-        mostJoeledStreamerStats = sendQuery("GetMostJoeledStreamerStats", [username.downcase])
-
-        message = "#{username} has Joel'd #{basicStats["totalJoels"].to_i} times since #{basicStats["firstJoelDate"]} / "
-        message += "Most Joels in a stream : #{mostJoelStreamStats["mostJoelsInStream"]} on #{mostJoelStreamStats["mostJoelsInStreamDate"]} on #{mostJoelStreamStats["MostJoelsInStreamStreamer"]} / "
-        message += "Most Joeled streamer : #{mostJoeledStreamerStats["count"]} on #{mostJoeledStreamerStats["mostJoeledStreamer"]}"
-        send_twitch_message(channelId.to_i, message)
-      else
-        send_twitch_message(channelId.to_i, "#{username} didn't Joel yet")
-      end
-    when "!jcp"
-      send_twitch_message(channelId.to_i, "JCP : #{$JCP.round(2)}%")
-    when "!joelstatus"
-      send_twitch_message(channelId.to_i, "JoelBot is online")
     end
+  rescue => exception
+    puts exception
   end
 end
 
@@ -580,9 +592,7 @@ def sendQuery(queryName, body)
   when 200
     return JSON.parse(response.body)
   when 400, 404
-    sendNotif('bot crashed bacause of bad code', 'bot down')
-    p 'bad code dumbass'
-    exit
+    throw 'bad request or server rebooting'
   when 500
     throw "SQL Service Error"
   end
