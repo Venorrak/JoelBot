@@ -24,7 +24,7 @@ $twitch_token = nil
 $joinedChannels = []
 $acceptedJoels = ["GoldenJoel" , "Joel2" , "Joeler" , "Joel" , "jol" , "JoelCheck" , "JoelbutmywindowsXPiscrashing" , "JOELLINES", "Joeling", "Joeling", "LetHimJoel", "JoelPride", "WhoLetHimJoel", "Joelest", "EvilJoel", "JUSSY", "JoelJams", "JoelTrain", "BarrelJoel", "JoelWide1", "JoelWide2", "Joeling2"]
 $followedChannels = ["jakecreatesstuff", "venorrak", "lcolonq", "prodzpod", "cr4zyk1tty", "tyumici", "colinahscopy_", "mickynoon"]
-$lastJoelPerStream = []
+$lastJoels = []
 $lastStreamJCP = []
 $commandChannels = ["venorrak", "prodzpod", "cr4zyk1tty", "jakecreatesstuff", "tyumici", "lcolonq", "colinahscopy_", "mickynoon"]
 $twoMinWait = AbsoluteTime.now
@@ -201,60 +201,19 @@ def getLastStreamJCP(channelName)
   return result
 end
 
-def updateLastStreamJCP()
-  lastStreamJCP = []
-  $followedChannels.each do |channel|
-    lastStreamJCP = getLastStreamJCP(channel)
-    if lastStreamJCP.nil?
-      next
-    end
-    $lastStreamJCP << {channel: channel, JCP: lastStreamJCP}
-  end
-end
-
 def updateJCP()
-  now = Time.new()
-  uptime = (now - $initiationDateTime) / 60
-  joinedChannelsName = $joinedChannels.map { |channel| channel[:channel] }
 
-  # get all the times since the last joel for each channel (online and offline)
-  # get all the average joel per minute for each channel (online and offline)
-  allTimesSinceLastJoel = []
-  allAverageJoelPerMinute = []
-  $followedChannels.each do |channel|
-    if joinedChannelsName.include?(channel)
-      timeSinceLastJoel = (now - $lastJoelPerStream.find { |channelData| channelData[:channel] == channel }[:lastJoel]) / 60#minutes
-      totalJoelCountLastStream = sendQuery("GetTotalJoelCountLastStream", [channel])["count"].to_f rescue 0.0
-      joelPerMinute = totalJoelCountLastStream / ((Time.now() - $joinedChannels.find {|joinedChannel| joinedChannel[:channel] == channel}[:subscription_time]) / 60.0) rescue 0.0 # Joels per minute
-    else
-      joelPerMinute = $lastStreamJCP.find { |channelData| channelData[:channel] == channel }[:JCP] # Joels per minute
-      minutePerJoel = 1.0 / joelPerMinute rescue 0 # Minutes per Joel
-      if minutePerJoel != 0 && minutePerJoel != Float::INFINITY
-        timeSinceLastJoel = uptime % minutePerJoel
-      else
-        timeSinceLastJoel = 0
-      end
-      
-    end
-    # p channel + " : " + timeSinceLastJoel.to_s + " / " + joelPerMinute.to_s
-
-    if timeSinceLastJoel != 0
-      allTimesSinceLastJoel << timeSinceLastJoel
-    end
-    if joelPerMinute > 0 && joelPerMinute != Float::INFINITY
-      allAverageJoelPerMinute << joelPerMinute
-    end
+  joelString = $lastJoels.join("")
+  joelStringCodepoints = joelString.codepoints
+  
+  # averageJCP = 100 * (1 - (allAverageJoelPerMinute.max - allAverageJoelPerMinute.min) / allAverageJoelPerMinute.max)
+  extremes = []
+  2.times do
+    extremes << joelStringCodepoints.shuffle[0]
   end
-  
-  
-  # average between $JCP calculated with timeSinceLastJoel and $JCP calculated with joel per minute (last stream & current stream)
-  # if all the the timeSinceLastJoel are equal -> JCP = 100%
-  # if the timeSinceLastJoel are different -> JCP = 100 * (1 - (max - min) / max)
-  if !allTimesSinceLastJoel.empty? && !allAverageJoelPerMinute.empty?
-    lastTimeJCP = 100 * (1 - (allTimesSinceLastJoel.max - allTimesSinceLastJoel.min) / allTimesSinceLastJoel.max)
-    averageJCP = 100 * (1 - (allAverageJoelPerMinute.max - allAverageJoelPerMinute.min) / allAverageJoelPerMinute.max)
-
-    $JCP = (lastTimeJCP + averageJCP) / 2
+  $JCP = 100 * (1 - (extremes.max.to_f - extremes.min.to_f) / extremes.max.to_f)
+  if $JCP == 100
+    $JCP = 99.99
   end
 
   # printJCPStatus()
@@ -307,8 +266,8 @@ def updateJCPDB()
 end
 
 def createEmptyDataForLastJoel()
-  $followedChannels.each do |channel|
-    $lastJoelPerStream << {channel: channel, lastJoel: Time.new()}
+  10.times do
+    $lastJoels << $acceptedJoels.shuffle[0]
   end
 end
 
@@ -438,16 +397,12 @@ def createChannelDB(channelName)
   end
 end
 
-def joelReceived(receivedData, nbJoel)
+def joelReceived(receivedData, nbJoel, thisLastJoel)
   userName = receivedData["payload"]["event"]["chatter_user_login"]
   channelName = receivedData["payload"]["event"]["broadcaster_user_login"]
 
-  #update $lastJoelPerStream
-  $lastJoelPerStream.each do |channel|
-    if channel[:channel] == channelName
-      channel[:lastJoel] = Time.new()
-    end
-  end
+  $lastJoels.shift
+  $lastJoels << thisLastJoel
 
   begin
     #check if the user is in the database
@@ -608,7 +563,6 @@ if $me_twitch_id.nil?
   puts "error getting my twitch id"
   exit
 end
-updateLastStreamJCP()
 createEmptyDataForLastJoel()
 
 Thread.start do
@@ -705,8 +659,10 @@ def startWebsocket(url, isReconnect = false)
           words = message.delete_suffix("\u{E0000}").strip.split(" ")
           treatCommands(words, receivedData)
           nbJoelInMessage = 0
+          thislastJoel = nil
           words.each do |word|
             if $acceptedJoels.include?(word)
+              thislastJoel = word
               nbJoelInMessage += 1
             end
           end
@@ -715,7 +671,7 @@ def startWebsocket(url, isReconnect = false)
             if receivedData["payload"]["event"]["chatter_user_login"] == "venorrak" && words[0] == "[📺]"
               print("")
             else
-              joelReceived(receivedData, nbJoelInMessage)
+              joelReceived(receivedData, nbJoelInMessage, thislastJoel)
             end
           end
         end
@@ -750,7 +706,6 @@ loop do
     updateJCPDB()
     if now - $twoMinWait > 120
       updateTrackedChannels()
-      updateLastStreamJCP()
       $twoMinWait = now
     end
   rescue => exception
