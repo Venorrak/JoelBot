@@ -23,10 +23,10 @@ $online = false
 $twitch_token = nil
 $joinedChannels = []
 $acceptedJoels = ["GoldenJoel" , "Joel2" , "Joeler" , "Joel" , "jol" , "JoelCheck" , "JoelbutmywindowsXPiscrashing" , "JOELLINES", "Joeling", "Joeling", "LetHimJoel", "JoelPride", "WhoLetHimJoel", "Joelest", "EvilJoel", "JUSSY", "JoelJams", "JoelTrain", "BarrelJoel", "JoelWide1", "JoelWide2", "Joeling2"]
-$followedChannels = ["jakecreatesstuff", "venorrak", "lcolonq", "prodzpod", "cr4zyk1tty", "tyumici", "colinahscopy_", "mickynoon"]
+$followedChannels = ["jakecreatesstuff", "venorrak", "lcolonq", "prodzpod", "cr4zyk1tty", "tyumici", "colinahscopy_", "mickynoon", "bamo16"]
 $lastJoels = []
 $lastStreamJCP = []
-$commandChannels = ["venorrak", "prodzpod", "cr4zyk1tty", "jakecreatesstuff", "tyumici", "lcolonq", "colinahscopy_", "mickynoon"]
+$commandChannels = ["venorrak", "prodzpod", "cr4zyk1tty", "jakecreatesstuff", "tyumici", "lcolonq", "colinahscopy_", "mickynoon", "bamo16"]
 $twoMinWait = AbsoluteTime.now
 $initiationDateTime = Time.new()
 $me_twitch_id = nil
@@ -249,6 +249,9 @@ def updateJCPDB()
         "JCP" => $JCP,
         "timestamp" => Time.now.strftime('%Y-%m-%d %H:%M:%S')
       }
+      
+      # delete old data in JCPshort where the timestamp is older than 24 hours
+      sendQuery("DeleteOldShortJCP", [(Time.now - 86400).strftime('%Y-%m-%d %H:%M:%S')])
     end
     if Time.now - Time.parse($lastShortJCP["timestamp"]) > 15
       sendQuery("NewJCPshort", [$JCP, Time.now.strftime('%Y-%m-%d %H:%M:%S')])
@@ -258,8 +261,7 @@ def updateJCPDB()
       }
     end
 
-    # delete old data in JCPshort where the timestamp is older than 24 hours
-    sendQuery("DeleteOldShortJCP", [(Time.now - 86400).strftime('%Y-%m-%d %H:%M:%S')])
+    
   rescue => exception
     puts exception
   end
