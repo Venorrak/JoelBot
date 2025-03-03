@@ -22,7 +22,7 @@ $online = false
 
 $twitch_token = nil
 $joinedChannels = []
-$acceptedJoels = ["GoldenJoel" , "Joel2" , "Joeler" , "Joel" , "jol" , "JoelCheck" , "JoelbutmywindowsXPiscrashing" , "JOELLINES", "Joeling", "Joeling", "LetHimJoel", "JoelPride", "WhoLetHimJoel", "Joelest", "EvilJoel", "JUSSY", "JoelJams", "JoelTrain", "BarrelJoel", "JoelWide1", "JoelWide2", "Joeling2"]
+$acceptedJoels = ["GoldenJoel" , "Joel2" , "Joeler" , "Joel" , "jol", "joll" , "JoelCheck" , "JoelbutmywindowsXPiscrashing" , "JOELLINES", "Joeling", "Joeling", "LetHimJoel", "JoelPride", "WhoLetHimJoel", "Joelest", "EvilJoel", "JUSSY", "JoelJams", "JoelTrain", "BarrelJoel", "JoelWide1", "JoelWide2", "Joeling2", "PauseJoel", "OhNoWhatHappenedToJoel", "JoelNOPERS", "leoJ", "Joelene"]
 $followedChannels = ["jakecreatesstuff", "venorrak", "lcolonq", "prodzpod", "cr4zyk1tty", "tyumici", "colinahscopy_", "mickynoon", "bamo16"]
 $lastJoels = []
 $lastStreamJCP = []
