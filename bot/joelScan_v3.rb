@@ -105,7 +105,7 @@ def send_twitch_message(channel, message)
     channel_id = getTwitchUser(channel)["data"][0]["id"]
   end
   begin
-    message = "[📺] #{message}"
+    message = "[🐟] #{message}"
     request_body = {
         "broadcaster_id": channel_id,
         "sender_id": $me_twitch_id,
