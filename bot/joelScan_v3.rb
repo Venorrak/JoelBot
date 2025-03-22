@@ -533,6 +533,8 @@ def treatCommands(words, receivedData)
         send_twitch_message(channelId.to_i, "JCP : #{$JCP.round(2)}%")
       when "!joelstatus"
         send_twitch_message(channelId.to_i, "JoelBot is online")
+      when "!ping"
+        send_twitch_message(channelId.to_i, "Joel Pong")
       end
     end
   rescue => exception
