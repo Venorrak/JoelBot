@@ -22,11 +22,59 @@ $online = false
 
 $twitch_token = nil
 $joinedChannels = []
-$acceptedJoels = ["GoldenJoel" , "Joel2" , "Joeler" , "Joel" , "jol", "joll" , "JoelCheck" , "JoelbutmywindowsXPiscrashing" , "JOELLINES", "Joeling", "Joeling", "LetHimJoel", "JoelPride", "WhoLetHimJoel", "Joelest", "EvilJoel", "JUSSY", "JoelJams", "JoelTrain", "BarrelJoel", "JoelWide1", "JoelWide2", "Joeling2", "PauseJoel", "OhNoWhatHappenedToJoel", "JoelNOPERS", "leoJ", "Joelene"]
-$followedChannels = ["jakecreatesstuff", "venorrak", "lcolonq", "prodzpod", "cr4zyk1tty", "tyumici", "colinahscopy_", "mickynoon", "bamo16"]
+$acceptedJoels = [
+  "Joel", 
+  "JoelCheck", 
+  "Joeling",
+  "Joelest", 
+  "JoelJams", 
+  "JoelbutmywindowsXPiscrashing", 
+  "jol", 
+  "GoldenJoel", 
+  "Joeler", 
+  "JoelPride", 
+  "Joel2", 
+  "joll", 
+  "JOELLINES", 
+  "LetHimJoel", 
+  "WhoLetHimJoel", 
+  "EvilJoel", 
+  "JUSSY", 
+  "JoelTrain", 
+  "BarrelJoel", 
+  "JoelWide1", 
+  "JoelWide2", 
+  "Joeling2", 
+  "PauseJoel", 
+  "OhNoWhatHappenedToJoel", 
+  "JoelNOPERS", 
+  "leoJ", 
+  "Joelene"
+]
+$followedChannels = [
+  "jakecreatesstuff", 
+  "venorrak", 
+  "lcolonq", 
+  "prodzpod", 
+  "cr4zyk1tty", 
+  "tyumici", 
+  "colinahscopy_", 
+  "mickynoon", 
+  "bamo16"
+]
+$commandChannels = [
+  "venorrak", 
+  "prodzpod", 
+  "cr4zyk1tty", 
+  "jakecreatesstuff", 
+  "tyumici", 
+  "lcolonq", 
+  "colinahscopy_", 
+  "mickynoon", 
+  "bamo16"
+]
 $lastJoels = []
 $lastStreamJCP = []
-$commandChannels = ["venorrak", "prodzpod", "cr4zyk1tty", "jakecreatesstuff", "tyumici", "lcolonq", "colinahscopy_", "mickynoon", "bamo16"]
 $twoMinWait = AbsoluteTime.now
 $initiationDateTime = Time.new()
 $me_twitch_id = nil
@@ -53,8 +101,6 @@ $ntfy_server = Faraday.new(url: 'https://ntfy.venorrak.dev') do |conn|
 end
 
 
-
-#function to get the access token for API 
 def getTwitchToken()
   begin
     response = $TokenService.get("/token/twitch") do |req|
@@ -125,7 +171,6 @@ def send_twitch_message(channel, message)
   end
 end
 
-#function to get the live channels from the channels array
 def getLiveChannels()
   liveChannels = []
   channelsString = ""
@@ -314,7 +359,6 @@ def updateTrackedChannels()
   end
 end
 
-#function to get the user info from the API
 def getTwitchUser(name)
   response = $twitch_api.get("/helix/users?login=#{name}") do |req|
       req.headers["Authorization"] = "Bearer #{$twitch_token}"
@@ -334,7 +378,6 @@ def getTwitchUser(name)
   return rep
 end
 
-#function to send a notification to the ntfy server on JoelBot subject
 def sendNotif(message, title)
   rep = $ntfy_server.post("/JoelBot") do |req|
       req.headers["host"] = "ntfy.venorrak.dev"
@@ -344,7 +387,6 @@ def sendNotif(message, title)
   end
 end
 
-#create a user and joel in the database
 def createUserDB(name, userData, startJoels)
   begin
     pfp = nil
@@ -381,7 +423,6 @@ def createUserDB(name, userData, startJoels)
   end
 end
 
-#create a channel and channelJoels in the database
 def createChannelDB(channelName)
   channel_id = 0
   begin
@@ -510,7 +551,7 @@ def treatCommands(words, receivedData)
         end
         send_twitch_message(channelId.to_i, message)
       when "!joelcommands", "!jcommands"
-        send_twitch_message(channelId.to_i, "!JoelCount [username] / !JoelCountChannel [channelname] / !JoelCountStream - get the number of Joels on the current stream / !JoelTop - get the top 5 Joelers / !JoelTopChannel - get the top 5 channels with the most Joels / !joelStats [username] - gets basic stats from the user / !jcp - get the current jcp / !joelStatus - get the status of JoelBot")
+        send_twitch_message(channelId.to_i, "!JoelCount [username] / !JoelCountChannel [channelname] / !JoelCountStream / !JoelTop / !JoelTopChannel / !joelStats [username] / !jcp / !ping / !joelDrawer / !joelChannels / !joelLive")
       when "!joelstats", "!jstats", "!js"
         if words[1] != "" && words[1] != nil
           username = words[1]
@@ -531,14 +572,40 @@ def treatCommands(words, receivedData)
         end
       when "!jcp"
         send_twitch_message(channelId.to_i, "JCP : #{$JCP.round(2)}%")
-      when "!joelstatus"
-        send_twitch_message(channelId.to_i, "JoelBot is online")
       when "!ping"
         send_twitch_message(channelId.to_i, "Joel Pong")
+      when "!pong"
+        send_twitch_message(channelId.to_i, "Joel Ping")
+      when "!joeldrawer", "!jdraw", "!jd"
+        index = rand(0..$acceptedJoels.size - 1)
+        send_twitch_message(channelId.to_i, "@#{chatterName} - #{index.to_roman} - #{$acceptedJoels[index]}")
+      when "!joelchannels", "!jchannels"
+        send_twitch_message(channelId.to_i, "Channels with JoelBot : #{$followedChannels.join(", ")}")
+      when "!joellive", "!jlive", "!jl"
+        send_twitch_message(channelId.to_i, "Live channels with JoelBot : #{$joinedChannels.map { |channel| channel[:channel] }.join(", ")}")
       end
     end
   rescue => exception
     puts exception
+  end
+end
+
+class Integer
+  def to_roman
+    result = ""
+    value_map = {
+      1000 => "M", 900 => "CM", 500 => "D", 400 => "CD",
+      100 => "C", 90 => "XC", 50 => "L", 40 => "XL",
+      10 => "X", 9 => "IX", 5 => "V", 4 => "IV", 1 => "I"
+    }
+    num = self
+    value_map.each do |value, roman|
+      while num >= value
+      result << roman
+      num -= value
+      end
+    end
+    result
   end
 end
 
@@ -718,20 +785,3 @@ loop do
     puts "------------------------"
   end
 end
-
-
-
-# - gcp
-#   -has servers sending random numbers
-#   -calculates how far apart the numbers are
-#   -if they are far apart = high network variance
-#   -if they are close = low network variance
-#
-# - Joelbot (Jcp)
-#   -connects to twitch chat
-#   -Each channel is a server sending Joels (equivalent to random numbers)
-#   -calculates how far apart the Joels are
-#   -if they are far apart = high Joel variance
-#   -if they are close = low Joel variance
-#   -PROBLEM : how to calculate the variance of the Joels if only one channel is live ?
-#   -SOLUTION : Create Joels from last stream for each tracked channels (joelCount / streamDuration)
