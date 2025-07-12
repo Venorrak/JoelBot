@@ -34,7 +34,7 @@ $acceptedJoels = [
   "Joeler", 
   "JoelPride", 
   "Joel2", 
-  "joll", 
+  "Joll", 
   "JOELLINES", 
   "LetHimJoel", 
   "WhoLetHimJoel", 
@@ -57,10 +57,11 @@ $followedChannels = [
   "lcolonq", 
   "prodzpod", 
   "cr4zyk1tty", 
-  "tyumici", 
+  "tyumici",
   "colinahscopy_", 
   "mickynoon", 
-  "bamo16"
+  "bamo16",
+  "kinskyunplugged"
 ]
 $commandChannels = [
   "venorrak", 
@@ -70,8 +71,8 @@ $commandChannels = [
   "tyumici", 
   "lcolonq", 
   "colinahscopy_", 
-  "mickynoon", 
-  "bamo16"
+  "bamo16",
+  "kinskyunplugged"
 ]
 $lastJoels = []
 $lastStreamJCP = []
@@ -339,7 +340,7 @@ def updateTrackedChannels()
         begin
           subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, getTwitchUser(channel)["data"][0]["id"])
           $joinedChannels << {:channel => channel, :subscription_id => subscribeData["data"][0]["id"], :subscription_time => Time.now}
-          send_twitch_message(channel, "JoelBot has entered the chat, !JoelCommands for commands")
+          # send_twitch_message(channel, "JoelBot has entered the chat, !JoelCommands for commands")
           sendNotif("Bot joined #{channel}", "Alert Bot Joined Channel")
         rescue => exception
           puts exception
@@ -352,7 +353,7 @@ def updateTrackedChannels()
         leavingChannel = $joinedChannels.find { |channelData| channelData[:channel] == channel }
         unsubscribeToTwitchEventSub(leavingChannel[:subscription_id])
         $joinedChannels.delete(leavingChannel)
-        send_twitch_message(channel, "JoelBot has left the chat")
+        # send_twitch_message(channel, "JoelBot has left the chat")
         sendNotif("Bot left #{channel}", "Alert Bot Left Channel")
       end
     end
@@ -605,6 +606,9 @@ class Integer
       num -= value
       end
     end
+    if result == ""
+      return "0"
+    end
     result
   end
 end
@@ -624,6 +628,20 @@ def sendQuery(queryName, body)
   end
 end
 
+def createMSG(subject, payload)
+  return {
+    "subject": subject.join("."),
+    "payload": payload
+  }
+end
+
+def sendToBus(msg)
+  if msg.is_a?(Hash)
+    msg = msg.to_json
+  end
+  $bus.send(msg)
+end
+
 getTwitchToken()
 if $twitch_token.nil?
   puts "error getting twitch token"
@@ -638,7 +656,8 @@ createEmptyDataForLastJoel()
 
 Thread.start do
   EM.run do
-    bus = Faye::WebSocket::Client.new('ws://192.168.0.16:5963')
+    bus = Faye::WebSocket::Client.new('ws://192.168.0.16:5000')
+    $bus = bus
   
     bus.on :open do |event|
       p [:open, "BUS"]
@@ -652,13 +671,8 @@ Thread.start do
         data = event.data
       end
   
-      if data["to"] == "all" && data["from"] == "BUS"
-        if data["payload"]["type"] == "token_refreshed"
-          case data["payload"]["client"]
-          when "twitch"
-            getTwitchToken()
-          end
-        end
+      if data["subject"] == "token.twitch" && data["payload"]["status"] == "refreshed"
+        getTwitchToken()
       end
     end
   
@@ -706,7 +720,7 @@ def startWebsocket(url, isReconnect = false)
               subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, getTwitchUser(channel)["data"][0]["id"])
               $joinedChannels << {:channel => channel, :subscription_id => subscribeData["data"][0]["id"], :subscription_time => Time.now}
               if isReconnect == false
-                send_twitch_message(channel, "JoelBot has entered the chat, !JoelCommands for commands")
+                # send_twitch_message(channel, "JoelBot has entered the chat, !JoelCommands for commands")
                 sendNotif("Bot joined #{channel}", "Alert Bot Joined Channel")
               end
             rescue => exception
@@ -743,6 +757,11 @@ def startWebsocket(url, isReconnect = false)
               print("")
             else
               joelReceived(receivedData, nbJoelInMessage, thislastJoel)
+              sendToBus(createMSG(["joel", "received"], {
+                "channel" => receivedData["payload"]["event"]["broadcaster_user_login"],
+                "user" => receivedData["payload"]["event"]["chatter_user_login"],
+                "count" => nbJoelInMessage,
+                "type" => thislastJoel,}))
             end
           end
         end
