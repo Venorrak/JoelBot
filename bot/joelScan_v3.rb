@@ -346,6 +346,8 @@ def updateTrackedChannels()
           puts exception
           p subscribeData
           p $joinedChannels
+          sendNotif("Error subscribing to channel #{channel}", "Alert Bot Error")
+          exit()
         end
       end
       #if the channel is not live and the bot is in the channel
@@ -727,6 +729,8 @@ def startWebsocket(url, isReconnect = false)
               puts exception
               p subscribeData
               p $joinedChannels
+              sendNotif("Error subscribing to channel #{channel}", "Alert Bot Error")
+              exit()
             end
           end
         end
