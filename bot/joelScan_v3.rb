@@ -94,7 +94,7 @@ $twitch_api = Faraday.new(url: 'https://api.twitch.tv') do |conn|
   conn.request :url_encoded
 end
 
-$ntfy_server = Faraday.new(url: 'https://ntfy.venorrak.dev') do |conn|
+$ntfy_server = Faraday.new(url: 'https://notify.venorrak.dev') do |conn|
   conn.request :url_encoded
 end
 
