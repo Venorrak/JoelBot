@@ -4,17 +4,14 @@ require 'eventmachine'
 require 'absolute_time'
 require "awesome_print"
 require 'faye/websocket'
-require 'irb'
 require 'time'
 
 gemfile do
   source "https://rubygems.org"
   gem "faraday"
-  gem "mysql2"
 end
 
 require 'faraday'
-require 'mysql2'
 require_relative "credentials.rb"
 require_relative "colorString.rb"
 
@@ -85,11 +82,11 @@ $lastLongJCP = nil
 $lastShortJCP = nil
 $bus = nil
 
-$TokenService = Faraday.new(url: 'http://localhost:5002') do |conn|
+$TokenService = Faraday.new(url: 'http://token:5002') do |conn|
   conn.request :url_encoded
 end
 
-$SQLService = Faraday.new(url: 'http://localhost:5001') do |conn|
+$SQLService = Faraday.new(url: 'http://sql:5001') do |conn|
   conn.request :url_encoded
 end
 
@@ -109,7 +106,8 @@ def getTwitchToken()
     end
     rep = JSON.parse(response.body)
     $twitch_token = rep["token"]
-  rescue
+  rescue => e
+    p e
     puts "Token Service is down"
   end
 end
@@ -658,7 +656,7 @@ createEmptyDataForLastJoel()
 
 Thread.start do
   EM.run do
-    bus = Faye::WebSocket::Client.new('ws://192.168.0.16:5000')
+    bus = Faye::WebSocket::Client.new('ws://bus:5000')
     $bus = bus
   
     bus.on :open do |event|
