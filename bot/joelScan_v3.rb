@@ -58,7 +58,8 @@ $followedChannels = [
   "colinahscopy_", 
   "mickynoon", 
   "bamo16",
-  "kinskyunplugged"
+  "kinskyunplugged",
+  "badcop_"
 ]
 $commandChannels = [
   "venorrak", 
@@ -91,10 +92,6 @@ $SQLService = Faraday.new(url: 'http://sql:5001') do |conn|
 end
 
 $twitch_api = Faraday.new(url: 'https://api.twitch.tv') do |conn|
-  conn.request :url_encoded
-end
-
-$ntfy_server = Faraday.new(url: 'https://notify.venorrak.dev') do |conn|
   conn.request :url_encoded
 end
 
@@ -322,7 +319,6 @@ def updateTrackedChannels()
     liveChannels = getLiveChannels()
   rescue
     liveChannels = []
-    sendNotif("Bot stopped checking channels", "Alert")
   end
   if liveChannels.count > 0 && $online == false
     $online = true
@@ -339,12 +335,10 @@ def updateTrackedChannels()
           subscribeData = subscribeToTwitchEventSub($twitch_session_id, {:type => "channel.chat.message", :version => "1"}, getTwitchUser(channel)["data"][0]["id"])
           $joinedChannels << {:channel => channel, :subscription_id => subscribeData["data"][0]["id"], :subscription_time => Time.now}
           # send_twitch_message(channel, "JoelBot has entered the chat, !JoelCommands for commands")
-          sendNotif("Bot joined #{channel}", "Alert Bot Joined Channel")
         rescue => exception
           puts exception
           p subscribeData
           p $joinedChannels
-          sendNotif("Error subscribing to channel #{channel}", "Alert Bot Error")
           exit()
         end
       end
@@ -354,7 +348,6 @@ def updateTrackedChannels()
         unsubscribeToTwitchEventSub(leavingChannel[:subscription_id])
         $joinedChannels.delete(leavingChannel)
         # send_twitch_message(channel, "JoelBot has left the chat")
-        sendNotif("Bot left #{channel}", "Alert Bot Left Channel")
       end
     end
   end
@@ -377,15 +370,6 @@ def getTwitchUser(name)
     getTwitchToken()
   end
   return rep
-end
-
-def sendNotif(message, title)
-  rep = $ntfy_server.post("/JoelBot") do |req|
-      req.headers["host"] = "ntfy.venorrak.dev"
-      req.headers["Priority"] = "5"
-      req.headers["Title"] = title
-      req.body = message
-  end
 end
 
 def createUserDB(name, userData, startJoels)
@@ -420,7 +404,6 @@ def createUserDB(name, userData, startJoels)
     sendQuery("NewJoel", [user_id, startJoels])
   rescue => exception
     p exception
-    sendNotif("Error creating user in the database", "Alert")
   end
 end
 
@@ -437,7 +420,6 @@ def createChannelDB(channelName)
     sendQuery("NewChannelJoels", [channel_id])
   rescue => exception
     p exception
-    sendNotif("Error creating channel in the database", "Alert")
   end
 end
 
@@ -721,13 +703,11 @@ def startWebsocket(url, isReconnect = false)
               $joinedChannels << {:channel => channel, :subscription_id => subscribeData["data"][0]["id"], :subscription_time => Time.now}
               if isReconnect == false
                 # send_twitch_message(channel, "JoelBot has entered the chat, !JoelCommands for commands")
-                sendNotif("Bot joined #{channel}", "Alert Bot Joined Channel")
               end
             rescue => exception
               puts exception
               p subscribeData
               p $joinedChannels
-              sendNotif("Error subscribing to channel #{channel}", "Alert Bot Error")
               exit()
             end
           end
@@ -773,7 +753,6 @@ def startWebsocket(url, isReconnect = false)
     ws.on :close do |event|
       p [Time.now().to_s.split(" ")[1], :close, event.code, event.reason, "twitch"]
       if event.code != 1000
-        #sendNotif("JoelBot Disconnected : #{event.code} : #{event.reason}", "JoelBot")
         if getLiveChannels().count > 0
           startWebsocket("wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30", true)
           $online = true
@@ -802,7 +781,7 @@ loop do
     end
   rescue => exception
     puts "------------------------"
-    puts exception
+    puts Time.now.to_s + " - " + exception.to_s
     puts "------------------------"
   end
 end
