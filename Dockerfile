@@ -34,4 +34,5 @@ RUN gem update && gem install bundler \
 
 EXPOSE 5000
 
-CMD ["bash", "-c", "mkdir -p /home/dev/logs && ruby /home/dev/JoelBot/bot/joelScan_v3.rb 2>&1 | tee /home/dev/logs/joel_service.log"]
+CMD ["tail", "-f", "/dev/null"]
+# CMD ["bash", "-c", "mkdir -p /home/dev/logs && ruby /home/dev/JoelBot/bot/joelScan_v4.rb 2>&1 | tee /home/dev/logs/joel_service.log"]
