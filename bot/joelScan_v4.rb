@@ -60,7 +60,8 @@ $trackedChannels = [
   "saladforrest",
   "just_jane",
   "yiffweed",
-  "bigbookofbug"
+  "bigbookofbug",
+  "shindigs"
 ]
 $commandChannels = [
   "venorrak", 
@@ -347,7 +348,7 @@ def processJoelInMessage(message, nbJoel, lastJoel)
         if !sendQuery("GetUser", [userName]).nil?
             sendQuery("UpdateJoel", [nbJoel, userName])
         else
-            createUserDB(userName, userId, nbJoel)
+            createUserDB(userName, getTwitchUser(userName), nbJoel)
         end
         #check if the channel is in the database
         if !sendQuery("GetChannel", [channelName]).nil?
@@ -357,7 +358,7 @@ def processJoelInMessage(message, nbJoel, lastJoel)
         end
         #check if the channel owner is in the database
         if sendQuery("GetUser", [channelName]).nil?
-            createUserDB(channelName, userId, 0)
+            createUserDB(channelName, getTwitchUser(channelName), 0)
         end
         #check if the stream is in the database
         if !sendQuery("GetStreamJoelsToday", [channelName, DateTime.now.strftime("%Y-%m-%d")]).nil?
@@ -534,6 +535,7 @@ Thread.start do
             if receivedData["metadata"]["message_type"] == "session_welcome"
                 twitch_session_id = receivedData["payload"]["session"]["id"]
                 $trackedChannels.each do |channel|
+                    p "subscribing to channel.chat.message for #{channel}"
                     begin
                         subscribeToChannelChat(twitch_session_id, getTwitchUser(channel)["data"][0]["id"])
                     rescue => e
@@ -568,7 +570,7 @@ loop do
         if !message.nil?
             processMessage(message)
         end
-        sleep(0.5)
+        sleep(0.1)
     rescue => exception
         puts "------------------------"
         puts Time.now.to_s + " - " + exception.to_s
