@@ -61,7 +61,8 @@ $trackedChannels = [
   "just_jane",
   "yiffweed",
   "bigbookofbug",
-  "shindigs"
+  "shindigs",
+  "meisaka"
 ]
 $commandChannels = [
   "venorrak", 
